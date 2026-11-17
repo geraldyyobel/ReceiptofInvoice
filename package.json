@@ -1,0 +1,67 @@
+{
+  "name": "roi-bcu-2026",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"node --watch scripts/dev-server.js\" \"vite --host 127.0.0.1\"",
+    "start": "node scripts/start-app.js",
+    "build": "vite build",
+    "db:prepare": "node scripts/database.js prepare",
+    "db:migrate": "node scripts/database.js migrate",
+    "db:seed": "node prisma/seed.js",
+    "setup": "node scripts/setup.js",
+    "test": "node scripts/test.js",
+    "test:unit": "node --test tests/engine.test.js",
+    "browser:install": "playwright install chromium",
+    "test:volume": "node scripts/test-volume.js",
+    "pg:start": "node scripts/local-postgres.js",
+    "test:postgres": "node scripts/test-postgres.js",
+    "test:custom-performance": "node scripts/check-custom-performance.js",
+    "demo:add": "node scripts/demo-data.js add",
+    "demo:remove": "node scripts/demo-data.js remove --confirm=HAPUS-DATA-UJI"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.0",
+    "@tinymce/tinymce-react": "^6.3.0",
+    "adm-zip": "^0.6.1",
+    "bcryptjs": "^3.0.2",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "exceljs": "^4.4.0",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.2.1",
+    "handlebars": "^4.7.8",
+    "helmet": "^8.1.0",
+    "multer": "^2.0.2",
+    "node-cron": "^4.2.1",
+    "nodemailer": "^10.3.1",
+    "playwright": "^1.56.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "safe-regex2": "^5.1.2",
+    "sanitize-html": "^2.17.0",
+    "tinymce": "^8.2.2",
+    "tinymce-i18n": "^26.10.26",
+    "zod": "^4.1.12"
+  },
+  "overrides": {
+    "deepmerge-ts": "8.0.2",
+    "effect": "^3.20.0",
+    "uuid": "11.1.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.0",
+    "concurrently": "^9.2.1",
+    "prisma": "6.19.0",
+    "supertest": "^7.1.4",
+    "vite": "^7.2.0"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.0": true,
+    "@prisma/engines@6.19.0": true,
+    "prisma@6.19.0": true,
+    "esbuild": true
+  }
+}

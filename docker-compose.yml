@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Isi POSTGRES_ADMIN_PASSWORD di .env}
+      POSTGRES_DB: ${POSTGRES_DB:-roi_bcu}
+      ROI_APP_PASSWORD: ${POSTGRES_PASSWORD:?Isi POSTGRES_PASSWORD di .env}
+    ports:
+      - "127.0.0.1:${PG_DOCKER_PORT:-5544}:5432"
+    volumes:
+      - roi_pg_data:/var/lib/postgresql/data
+      - ./docker/postgres-init.sh:/docker-entrypoint-initdb.d/01-roi.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  app:
+    build: .
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATA_DIR: /app/data
+      DATABASE_PROVIDER: postgresql
+      DATABASE_URL: postgresql://roi_bcu:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-roi_bcu}?schema=public&connection_limit=8
+      LOCAL_POSTGRES_DIR: ""
+    ports:
+      - "127.0.0.1:${WEB_PORT:-5173}:3000"
+    volumes:
+      - roi_data:/app/data
+    restart: unless-stopped
+volumes:
+  roi_data:
+  roi_pg_data:

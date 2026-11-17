@@ -1,0 +1,247 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "sqlite"
+  url = env("DATABASE_URL")
+}
+model Admin {
+  id String @id @default(cuid())
+  email String @unique
+  name String
+  password String
+  role String @default("admin")
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  @@map("admins")
+}
+model Session {
+  id String @id
+  adminId String
+  csrf String
+  mode String?
+  expiresAt DateTime
+  @@index([adminId])
+  @@map("sessions")
+}
+model Mode {
+  id String @id
+  name String
+  reviewRequired Boolean @default(true)
+  @@map("modes")
+}
+model Term {
+  mode String @id
+  publishedId String?
+  draft String
+  @@map("terms")
+}
+model TermsVersion {
+  id String @id @default(cuid())
+  mode String
+  html String
+  createdAt DateTime @default(now())
+  author String
+  @@index([mode, createdAt])
+  @@map("terms_versions")
+}
+model Form {
+  mode String @id
+  currentId String
+  @@map("forms")
+}
+model FormVersion {
+  id String @id @default(cuid())
+  mode String
+  fields Json
+  sections Json
+  note String
+  createdAt DateTime @default(now())
+  @@index([mode, createdAt])
+  @@map("form_versions")
+}
+model FormField {
+  id String @id @default(cuid())
+  mode String
+  code String
+  definition Json
+  @@unique([mode, code])
+  @@map("form_fields")
+}
+model Submission {
+  id String @id @default(cuid())
+  mode String
+  bookYear Int?
+  bookNumber Int?
+  reference String @unique
+  tokenHash String
+  formVersionId String
+  termsVersionId String
+  templateVersionId String
+  documentSettings Json
+  startedAt DateTime
+  submittedAt DateTime @default(now())
+  vendor String
+  email String
+  status String @default("diterima")
+  values Json
+  @@index([mode, submittedAt])
+  @@unique([mode, bookYear, bookNumber])
+  @@index([mode, bookYear, submittedAt])
+  @@map("submissions")
+}
+model SubmissionValue {
+  id String @id @default(cuid())
+  submissionId String
+  code String
+  value Json
+  @@index([submissionId])
+  @@map("submission_values")
+}
+model Counter {
+  key String @id
+  value Int @default(0)
+  @@map("reference_counters")
+}
+model CustomColumn {
+  id String @id @default(cuid())
+  mode String
+  code String
+  label String
+  type String
+  options Json
+  position Int
+  hidden Boolean @default(false)
+  color String?
+  @@unique([mode, code])
+  @@map("custom_columns")
+}
+model CustomRow {
+  id String @id @default(cuid())
+  mode String
+  bookYear Int?
+  bookNumber Int?
+  masterId String?
+  color String?
+  createdAt DateTime @default(now())
+  @@unique([mode, masterId])
+  @@unique([mode, bookYear, bookNumber])
+  @@map("custom_rows")
+}
+model CustomCell {
+  id String @id @default(cuid())
+  mode String
+  rowId String
+  columnId String
+  value Json
+  color String?
+  @@unique([rowId, columnId])
+  @@index([mode, rowId])
+  @@index([mode, columnId, rowId])
+  @@map("custom_cells")
+}
+model CustomView {
+  id String @id @default(cuid())
+  mode String
+  name String
+  config Json
+  @@map("custom_views")
+}
+model CustomHistory {
+  id String @id
+  mode String
+  adminId String
+  undo Json
+  redo Json
+  revision Int @default(0)
+  updatedAt DateTime @updatedAt
+  @@index([mode])
+  @@map("custom_history")
+}
+model DocTemplate {
+  mode String @id
+  currentId String
+  @@map("doc_templates")
+}
+model TemplateVersion {
+  id String @id @default(cuid())
+  mode String
+  html String
+  createdAt DateTime @default(now())
+  author String
+  @@map("doc_template_versions")
+}
+model Upload {
+  id String @id @default(cuid())
+  mode String
+  filename String
+  originalName String
+  mime String
+  size Int
+  public Boolean @default(false)
+  createdAt DateTime @default(now())
+  @@map("uploads")
+}
+model ActivityLog {
+  id String @id @default(cuid())
+  mode String?
+  actor String
+  action String
+  ip String
+  before Json?
+  after Json?
+  createdAt DateTime @default(now())
+  @@index([mode, createdAt])
+  @@map("activity_logs")
+}
+model EmailLog {
+  id String @id @default(cuid())
+  mode String
+  submissionId String?
+  recipient String
+  status String
+  error String?
+  createdAt DateTime @default(now())
+  @@map("email_logs")
+}
+model Backup {
+  id String @id @default(cuid())
+  filename String
+  size Int
+  status String
+  error String?
+  createdAt DateTime @default(now())
+  @@map("backups")
+}
+model Setting {
+  key String @id
+  value Json
+  @@map("settings")
+}
+model AdminNotification {
+  id String @id @default(cuid())
+  mode String
+  authorId String
+  authorName String
+  title String
+  message String
+  kind String
+  priority String @default("normal")
+  dueAt DateTime
+  createdAt DateTime @default(now())
+  canceledAt DateTime?
+  recipients AdminNotificationRecipient[]
+  @@index([mode, dueAt])
+  @@index([mode, authorId, createdAt])
+  @@map("admin_notifications")
+}
+model AdminNotificationRecipient {
+  id String @id @default(cuid())
+  notificationId String
+  adminId String
+  readAt DateTime?
+  notification AdminNotification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  @@unique([notificationId, adminId])
+  @@index([adminId, readAt])
+  @@map("admin_notification_recipients")
+}

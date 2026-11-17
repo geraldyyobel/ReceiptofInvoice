@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+data/
+prisma/generated/
+test-results/
+*.log
+.env.*
+!.env.example
+*.zip
+*.sql.gz
+*.pem
+*.key

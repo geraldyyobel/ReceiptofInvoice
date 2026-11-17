@@ -1,0 +1,6 @@
+CREATE TABLE `admin_notifications` (`id` VARCHAR(191) NOT NULL PRIMARY KEY, `mode` VARCHAR(191) NOT NULL, `authorId` VARCHAR(191) NOT NULL, `authorName` VARCHAR(191) NOT NULL, `title` VARCHAR(191) NOT NULL, `message` LONGTEXT NOT NULL, `kind` VARCHAR(191) NOT NULL, `priority` VARCHAR(191) NOT NULL DEFAULT 'normal', `dueAt` DATETIME(3) NOT NULL, `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, `canceledAt` DATETIME(3));
+CREATE TABLE `admin_notification_recipients` (`id` VARCHAR(191) NOT NULL PRIMARY KEY, `notificationId` VARCHAR(191) NOT NULL, `adminId` VARCHAR(191) NOT NULL, `readAt` DATETIME(3), FOREIGN KEY (`notificationId`) REFERENCES `admin_notifications` (`id`) ON DELETE CASCADE ON UPDATE CASCADE);
+CREATE INDEX `admin_notifications_mode_dueAt_idx` ON `admin_notifications` (`mode`,`dueAt`);
+CREATE INDEX `admin_notifications_mode_authorId_createdAt_idx` ON `admin_notifications` (`mode`,`authorId`,`createdAt`);
+CREATE UNIQUE INDEX `admin_notification_recipients_notificationId_adminId_key` ON `admin_notification_recipients` (`notificationId`,`adminId`);
+CREATE INDEX `admin_notification_recipients_adminId_readAt_idx` ON `admin_notification_recipients` (`adminId`,`readAt`);
