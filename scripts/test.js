@@ -35,6 +35,9 @@ for (const args of [
     "tests/custom-query.test.js",
     "tests/review-regressions.test.js",
     "tests/notifications.test.js",
+    "tests/dashboard.test.js",
+    "tests/ui-races.test.js",
+    "tests/auth-races.test.js",
   ],
 ]) {
   const r = spawnSync(process.execPath, args, {

@@ -5,7 +5,8 @@ import { ModeCards } from "./public";
 import { FormBuilder } from "./builder";
 import { CustomTable } from "./custom";
 import { TermsEditor, TemplateEditor, Settings } from "./editors";
-import { Notifications, NotificationBell, NotificationSummary } from "./notifications";
+import { Dashboard } from "./dashboard";
+import { Notifications, NotificationBell } from "./notifications";
 const menus = [
   ["dashboard", "⌂", "Ringkasan"],
   ["notifications", "🔔", "Notifikasi"],
@@ -26,7 +27,8 @@ export function AdminApp({ config, refreshConfig }) {
         ? "settings"
         : "dashboard",
     ),
-    [nav, setNav] = useState(false);
+    [nav, setNav] = useState(false),
+    [destination, setDestination] = useState({});
   useEffect(() => {
     api("/auth/me")
       .then(setMe)
@@ -37,6 +39,7 @@ export function AdminApp({ config, refreshConfig }) {
     try {
       await api("/admin/mode", { method: "POST", body: { mode } });
       setMe({ ...me, mode });
+      setDestination({});
       setPage("dashboard");
     } catch (e) {
       setError(e.message);
@@ -104,6 +107,7 @@ export function AdminApp({ config, refreshConfig }) {
                 key={id}
                 className={page === id ? "selected" : ""}
                 onClick={() => {
+                  setDestination({});
                   setPage(id);
                   setError("");
                   setNav(false);
@@ -174,14 +178,14 @@ export function AdminApp({ config, refreshConfig }) {
             <h1>{active?.[2]}</h1>
           </div>
           <Notice type="error">{error}</Notice>
-          {page === "dashboard" && <Dashboard {...props} navigate={setPage} />}
+          {page === "dashboard" && <Dashboard {...props} navigate={(target, filters = {}) => { setDestination(filters); setPage(target); }} />}
           {page === "notifications" && <Notifications {...props} />}
-          {page === "data" && <DataForm {...props} />}
+          {page === "data" && <DataForm {...props} initialFilters={destination} />}
           {page === "custom" && <CustomTable {...props} />}
           {page === "terms" && <TermsEditor {...props} />}
           {page === "form" && <FormBuilder {...props} />}
           {page === "template" && <TemplateEditor {...props} />}
-          {page === "logs" && <Logs {...props} />}
+          {page === "logs" && <Logs {...props} initialTab={destination.tab} />}
           {page === "settings" && (
             <Settings {...props} refreshConfig={refreshConfig} />
           )}
@@ -274,72 +278,7 @@ function Login({ onLogin, config }) {
     </div>
   );
 }
-function Dashboard({ onError, navigate }) {
-  const [d, setD] = useState(null);
-  useEffect(() => {
-    api("/admin/dashboard").then(setD).catch(onError);
-  }, []);
-  if (!d) return <Busy />;
-  return (
-    <>
-      <div className="stats">
-        <div className="stat">
-          <span>Seluruh penyerahan</span>
-          <strong>{d.total}</strong>
-          <small>Data master pada mode aktif</small>
-        </div>
-        <div className="stat">
-          <span>Masuk hari ini</span>
-          <strong>{d.today}</strong>
-          <small>Submission diterima</small>
-        </div>
-        <div className="stat">
-          <span>Email gagal</span>
-          <strong>{d.failed}</strong>
-          <small>Periksa Email Log untuk detail</small>
-        </div>
-      </div>
-      <NotificationSummary onOpen={() => navigate("notifications")} />
-      <section className="paper">
-        <h2>Alur administrasi</h2>
-        <div className="process-grid">
-          {[
-            [
-              "01",
-              "Data masuk",
-              "Periksa penyerahan vendor di database master.",
-              "data",
-            ],
-            [
-              "02",
-              "Kelola salinan",
-              "Sinkronkan ke tabel kustom untuk pekerjaan admin.",
-              "custom",
-            ],
-            [
-              "03",
-              "Dokumen & pengiriman",
-              "Kelola template dan pantau pengiriman email.",
-              "template",
-            ],
-          ].map(([n, title, body, target]) => (
-            <button
-              className="process"
-              key={n}
-              onClick={() => navigate(target)}
-            >
-              <span className="eyebrow">{n}</span>
-              <h3>{title}</h3>
-              <p>{body}</p>
-              <span> Buka →</span>
-            </button>
-          ))}
-        </div>
-      </section>
-    </>
-  );
-}
-function DataForm({ onError }) {
+function DataForm({ onError, initialFilters = {} }) {
   const [data, setData] = useState(null),
     [filters, setFilters] = useState({
       year: "current",
@@ -351,6 +290,8 @@ function DataForm({ onError }) {
       sort: "submittedAt",
       dir: "desc",
       page: 1,
+      followup: "",
+      ...initialFilters,
     }),
     [detail, setDetail] = useState(null),
     [email, setEmail] = useState(""),
@@ -359,9 +300,11 @@ function DataForm({ onError }) {
     Object.entries(filters).filter(([, v]) => v !== ""),
   );
   useEffect(() => {
+    let active = true;
     api("/admin/submissions?" + query)
-      .then(setData)
-      .catch(onError);
+      .then((result) => { if (active) setData(result); })
+      .catch((e) => { if (active) onError(e); });
+    return () => { active = false; };
   }, [JSON.stringify(filters)]);
   const f = (k, v) =>
     setFilters({ ...filters, [k]: v, page: k === "page" ? v : 1 });
@@ -391,9 +334,13 @@ function DataForm({ onError }) {
           <select aria-label="Tahun buku data form" value={filters.year} onChange={(e) => f("year", e.target.value)}>
             <option value="current">Tahun berjalan ({data?.currentYear || "…"})</option>
             <option value="all">Semua tahun</option>
+            {/^[0-9]+$/.test(String(filters.year)) && !data?.years.some((y) => String(y.year) === String(filters.year)) && <option value={filters.year}>{filters.year}</option>}
             {data?.years.map((y) => <option key={y.year} value={y.year}>{y.year} ({y.count} baris)</option>)}
           </select>
         </label>
+        <label>Tindak lanjut<select aria-label="Filter tindak lanjut" value={filters.followup} onChange={(e) => f("followup", e.target.value)}>
+          <option value="">Semua penyerahan</option><option value="legality">Legalitas belum terkirim</option><option value="email">Pengiriman terakhir gagal</option>
+        </select></label>
         <input
           aria-label="Cari data"
           placeholder="Cari referensi, vendor, email…"
@@ -588,8 +535,8 @@ function DataForm({ onError }) {
     </>
   );
 }
-function Logs({ onError, admin }) {
-  const [tab, setTab] = useState("activity"),
+function Logs({ onError, admin, initialTab = "activity" }) {
+  const [tab, setTab] = useState(initialTab),
     [logs, setLogs] = useState(null),
     [backups, setBackups] = useState([]),
     [q, setQ] = useState(""),
@@ -599,22 +546,23 @@ function Logs({ onError, admin }) {
     [busy, setBusy] = useState(false),
     [restore, setRestore] = useState(null),
     [confirmText, setConfirmText] = useState(""),
-    [info, setInfo] = useState("");
+    [info, setInfo] = useState(""),
+    [reload, setReload] = useState(0);
   const query = new URLSearchParams({ q, page, from, to });
-  function load() {
-    if (tab === "backups")
-      api("/admin/backups").then(setBackups).catch(onError);
-    else
-      api("/admin/logs/" + tab + "?" + query)
-        .then(setLogs)
-        .catch(onError);
-  }
-  useEffect(load, [tab, q, page, from, to]);
+  useEffect(() => {
+    let active = true;
+    setLogs(null);
+    const backupTab = tab === "backups";
+    api(backupTab ? "/admin/backups" : "/admin/logs/" + tab + "?" + query)
+      .then((result) => { if (active) { if (backupTab) setBackups(result); else setLogs(result); } })
+      .catch((e) => { if (active) onError(e); });
+    return () => { active = false; };
+  }, [tab, q, page, from, to, reload]);
   async function work(fn) {
     setBusy(true);
     try {
       await fn();
-      load();
+      setReload((n) => n + 1);
     } catch (e) {
       onError(e);
     } finally {

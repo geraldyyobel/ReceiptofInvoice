@@ -6,13 +6,19 @@ const changed = () => window.dispatchEvent(new Event("roi-notifications-changed"
 
 export function NotificationSummary({ onOpen }) {
   const [data, setData] = useState(null), [error, setError] = useState("");
+  const [page, setPage] = useState(1), [index, setIndex] = useState(0), touch = useRef(null);
   useEffect(() => {
     let active = true, serial = 0;
+    setData(null);
     const load = async () => {
       const request = ++serial;
       try {
-        const result = await api("/admin/notifications?box=inbox&page=1");
-        if (active && serial === request) { setData(result); setError(""); }
+        const result = await api(`/admin/notifications?box=inbox&page=${page}`);
+        if (active && serial === request) {
+          setData(result); setError("");
+          if (result.page !== page) { setIndex(0); setPage(result.page); }
+          else setIndex((i) => Math.min(i, Math.max(0, result.rows.length - 1)));
+        }
       } catch (e) { if (active && serial === request) setError(e.message); }
     };
     const refresh = () => { if (!document.hidden) void load(); };
@@ -25,21 +31,39 @@ export function NotificationSummary({ onOpen }) {
       window.removeEventListener("roi-notifications-changed", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, []);
+  }, [page]);
+  const position = data ? (data.page - 1) * data.size + index + 1 : 0;
+  function move(delta) {
+    if (!data || position + delta < 1 || position + delta > data.total) return;
+    if (index + delta < 0) { setPage(page - 1); setIndex(data.size - 1); }
+    else if (index + delta >= data.rows.length) { setPage(page + 1); setIndex(0); }
+    else setIndex(index + delta);
+  }
+  const item = data?.rows[index], n = item?.notification;
   return <section className="paper notification-summary" aria-labelledby="notification-summary-title">
     <div className="between">
       <h2 id="notification-summary-title">Notifikasi masuk</h2>
       <button className="secondary small" onClick={onOpen}>Buka kotak masuk →</button>
     </div>
-    <p className="muted">Pesan untuk Anda pada mode aktif · Maksimal 5 notifikasi terbaru.</p>
     <Notice type="error">{error}</Notice>
     {!data ? !error && <Busy /> : <>
-      {!data.rows.length && <p className="empty">Belum ada notifikasi masuk.</p>}
-      {data.rows.slice(0, 5).map(({ id, notification: n, readAt }) => <article key={id} className={`notification-item ${!readAt ? "notification-unread" : ""}`}>
-        <div className="between"><h3>{n.title}</h3><span className="status">{readAt ? "Dibaca" : "Belum dibaca"}</span></div>
-        <small className="muted">{n.priority === "urgent" ? "Penting · " : ""}{n.kind === "reminder" ? "Pengingat" : "Informasi"} · {date(n.dueAt)} · {n.authorName}</small>
-        <p className="notification-message">{n.message}</p>
-      </article>)}
+      {!n ? <p className="empty">Belum ada notifikasi masuk.</p> : <>
+        <div className="notification-slider" tabIndex={0} role="region" aria-label="Geser notifikasi" aria-roledescription="karusel"
+          onKeyDown={(e) => { if (e.target !== e.currentTarget) return; if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); move(e.key === "ArrowLeft" ? -1 : 1); } }}
+          onTouchStart={(e) => { const t = e.touches[0]; touch.current = { x: t.clientX, y: t.clientY }; }}
+          onTouchEnd={(e) => { const t = e.changedTouches[0], start = touch.current; touch.current = null; if (start && Math.abs(t.clientX - start.x) > 45 && Math.abs(t.clientX - start.x) > Math.abs(t.clientY - start.y)) move(t.clientX < start.x ? 1 : -1); }}>
+          <article className={`notification-item ${!item.readAt ? "notification-unread" : ""}`} aria-live="polite" aria-atomic="true">
+            <div className="between"><h3>{n.title}</h3><span className="status">{item.readAt ? "Dibaca" : "Belum dibaca"}</span></div>
+            <small className="muted">{n.priority === "urgent" ? "Penting · " : ""}{n.kind === "reminder" ? "Pengingat" : "Informasi"} · {date(n.dueAt)} · {n.authorName}</small>
+            <p className="notification-message">{n.message}</p>
+          </article>
+        </div>
+        <div className="between notification-slider-controls">
+          <button className="secondary small" aria-label="Notifikasi sebelumnya" disabled={position <= 1} onClick={() => move(-1)}>←</button>
+          <small aria-live="polite">{position} dari {data.total} · Geser atau gunakan panah</small>
+          <button className="secondary small" aria-label="Notifikasi berikutnya" disabled={position >= data.total} onClick={() => move(1)}>→</button>
+        </div>
+      </>}
     </>}
   </section>;
 }

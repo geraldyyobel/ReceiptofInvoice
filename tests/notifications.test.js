@@ -82,7 +82,12 @@ test("notifikasi antaradmin, pengingat, isolasi, UI dan backup", async (t) => {
       await summary.getByRole("heading", { name: "Notifikasi masuk", exact: true }).waitFor();
       await summary.getByRole("heading", { name: "Pengingat dokumen", exact: true }).first().waitFor();
       assert.equal(await page.getByRole("button", { name: /Tandai .*ditinjau/ }).count(), 0);
-      assert.equal(await summary.locator("article").count(), 2);
+      assert.equal(await summary.locator("article").count(), 1);
+      await summary.getByText("1 dari 2", { exact: false }).waitFor();
+      await summary.getByRole("button", { name: "Notifikasi berikutnya", exact: true }).click();
+      await summary.getByText("2 dari 2", { exact: false }).waitFor();
+      await summary.getByRole("button", { name: "Notifikasi sebelumnya", exact: true }).click();
+      await summary.getByText("1 dari 2", { exact: false }).waitFor();
       assert.equal(await summary.locator("img").count(), 0);
       await page.getByRole("button", { name: "⇄ Pindah mode", exact: true }).click();
       await summary.getByText("Belum ada notifikasi masuk.", { exact: true }).waitFor();

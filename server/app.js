@@ -1,4 +1,5 @@
 import { registerNotifications } from "./notifications.js";
+import { dashboard, followupSelection } from "./dashboard.js";
 import express from "express";
 import {
   beginMailConnection,
@@ -44,7 +45,6 @@ import {
   cleanHtml,
   renderHtml,
   inTimezone,
-  startOfDay,
   startOfDate,
   referenceNumber,
 } from "./core.js";
@@ -204,7 +204,7 @@ app.post("/api/auth/login", limiter("login_limit", 15, 5), async (req, res) => {
     await audit(req, "auth.login_failed", null, { email }, null);
     throw fail("Email atau password salah", 401);
   }
-  if (req.session) await db.session.delete({ where: { id: req.session.id } });
+  if (req.session) await db.session.deleteMany({ where: { id: req.session.id } });
   const s = await settings(),
     token = random(),
     expiresAt = new Date(Date.now() + Number(s.session_hours) * 3600000);
@@ -235,8 +235,8 @@ app.get("/api/auth/me", (req, res) =>
 );
 app.post("/api/auth/logout", async (req, res) => {
   if (req.session) {
-    await db.session.delete({ where: { id: req.session.id } });
-    await audit(req, "auth.logout");
+    const removed = await db.session.deleteMany({ where: { id: req.session.id } });
+    if (removed.count) await audit(req, "auth.logout");
   }
   res.clearCookie("roi_session", { path: "/" }).json({ ok: true });
 });
@@ -641,24 +641,7 @@ async function submissionWhere(req) {
   };
 }
 app.get("/api/admin/dashboard", async (req, res) => {
-  const s = await settings(),
-    total = await db.submission.count({ where: { mode: req.mode } }),
-    today = await db.submission.count({
-      where: {
-        mode: req.mode,
-        submittedAt: { gte: startOfDay(new Date(), s.zona_waktu) },
-      },
-    }),
-    failed = await db.emailLog.count({
-      where: { mode: req.mode, status: "gagal" },
-    });
-  res.json({
-    total,
-    today,
-    failed,
-    assumptions,
-    mode: await db.mode.findUnique({ where: { id: req.mode } }),
-  });
+  res.json(await dashboard(req.mode, req.query.year));
 });
 app.post("/api/admin/review", async (req, res) => {
   const reviewed = z.boolean().parse(req.body.reviewed);
@@ -678,6 +661,11 @@ app.get("/api/admin/submissions", async (req, res) => {
       ? req.query.sort
       : "submittedAt",
     dir = req.query.dir === "asc" ? "asc" : "desc";
+  let filteredTotal;
+  if (req.query.followup) {
+    const selection = await followupSelection(where, req.query.followup, { skip: (page - 1) * size, take: size, sort, dir });
+    where.id = { in: selection.ids }; filteredTotal = selection.total;
+  }
   res.json({
     rows: await db.submission.findMany({
       where,
@@ -692,10 +680,10 @@ app.get("/api/admin/submissions", async (req, res) => {
         status: true,
       },
       orderBy: [{ bookYear: "desc" }, { [sort]: dir }, { id: "asc" }],
-      skip: (page - 1) * size,
+      skip: req.query.followup ? 0 : (page - 1) * size,
       take: size,
     }),
-    total: await db.submission.count({ where }),
+    total: filteredTotal ?? await db.submission.count({ where }),
     page,
     size,
     years: await bookYears(db, "submission", req.mode),
@@ -703,8 +691,10 @@ app.get("/api/admin/submissions", async (req, res) => {
   });
 });
 app.get("/api/admin/submissions/export/:format", async (req, res) => {
+  const where = await submissionWhere(req);
+  if (req.query.followup) where.id = { in: (await followupSelection(where, req.query.followup)).ids };
   const rows = await db.submission.findMany({
-    where: await submissionWhere(req),
+    where,
     orderBy: { submittedAt: "desc" },
   });
   const codes = [...new Set(rows.flatMap((r) => Object.keys(r.values)))];

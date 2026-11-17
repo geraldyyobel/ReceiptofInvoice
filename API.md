@@ -133,3 +133,5 @@ PUT custom/cell pada kolom number menerima number finite atau string desimal/sci
 ## Notifikasi admin
 
 Rute baru berada di /admin/notifications, memerlukan login dan mode session aktif. GET recipients, unread, daftar ?box=inbox|sent&unread=0|1&page=1; POST root untuk membuat; POST :id/read, read-all, :id/cancel untuk baca/batalkan. Semua mutasi memerlukan CSRF. Mode/penerima tidak dapat dilewati dengan ID pesan. Payload, hak akses, jadwal dan migrasi dijelaskan di [NOTIFIKASI_ADMIN.md](NOTIFIKASI_ADMIN.md).
+
+Ringkasan tahunan: GET /api/admin/dashboard?year=current|YYYY (all ditolak), mode dari session. Mengembalikan agregat total/today/last7/vendors/failed, daily[30], monthly[12], currencies (total string desimal per mata uang), topVendors/topByValue, compositions, sources, emails, duration dan followups. GET /api/admin/submissions dan /export/:format menerima followup=legality|email, dikombinasikan dengan filter tahun/pencarian/vendor/tanggal/status. Detail definisi: RINGKASAN_ADMIN.md.

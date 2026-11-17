@@ -239,3 +239,9 @@ Audit pop-up terbaru: [AUDIT_POPUP_2026-11-16.md](AUDIT_POPUP_2026-11-16.md). Du
 Template Dokumen menyediakan `{{nomor_buku}}` (nomor urut master per mode/tahun) dan `{{tahun_buku}}` (tahun buku berdasarkan tanggal invoice). Contoh penempatan: `No. Buku: {{nomor_buku}} / {{tahun_buku}}`. Nilai bersumber dari metadata submission master; edit Tabel Kustom tidak mengubah dokumen. Nilai jawaban vendor dengan nama yang sama tidak dapat menimpanya. Metadata yang belum tersedia ditampilkan sebagai `-`.
 
 `{{nomor_referensi}}` tetap nomor ROI; `{{tahun}}` tetap tahun penerimaan. Tata letak/template tersimpan tidak diubah otomatis. Tambahkan placeholder melalui Admin > Template Dokumen. Pratinjau memakai nomor 1 dan tahun tanggal invoice contoh; JSON contoh dapat memuat `"nomor_buku": 42, "tahun_buku": 2026` untuk pengujian. PDF dan lampiran email memakai metadata yang sama dengan HTML. Tidak diperlukan migration database.
+
+## Ringkasan admin dengan tahun buku
+
+Ringkasan kini menampilkan satu notifikasi yang bisa digeser, lima kartu indikator, tren harian/bulanan, nilai per mata uang, Top 10 vendor, komposisi, sumber permintaan, status email, waktu pengisian dan tindak lanjut dengan filter Data Form. Definisi angka, aturan periode, migration indeks, cara pembaruan dan hasil uji tersedia di [RINGKASAN_ADMIN.md](RINGKASAN_ADMIN.md). Seluruh agregat dibatasi mode/tahun buku dan dibaca per batch 500; grafik tidak memakai paket baru.
+
+Audit kode terbaru: [AUDIT_KODE_2026-11-17.md](AUDIT_KODE_2026-11-17.md). Respons pencarian/tab log yang terlambat dan error login/logout serentak diperbaiki; suite akhir PostgreSQL 97/97 lulus.
