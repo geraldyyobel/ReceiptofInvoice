@@ -14,6 +14,7 @@ let schema = (await readFile("prisma/schema.prisma", "utf8")).replace(
 );
 // SQL text columns must hold rich HTML and large form payloads on MySQL.
 if (provider === "mysql") {
+  schema = schema.replace(/^(\s+reviewNote\s+String\??)(.*)$/gm, "$1 @db.Text$2");
   schema = schema.replace(
     /^(\s+(?:html|draft|note|message|vendor|filename|originalName|error|recipient|actor|label|name)\s+String\??)(.*)$/gm,
     "$1 @db.LongText$2",

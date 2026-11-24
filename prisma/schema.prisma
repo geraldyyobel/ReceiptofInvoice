@@ -123,6 +123,9 @@ model CustomRow {
   bookNumber Int?
   masterId String?
   color String?
+  reviewChecked Boolean @default(false)
+  reviewFlag String?
+  reviewNote String?
   createdAt DateTime @default(now())
   @@unique([mode, masterId])
   @@unique([mode, bookYear, bookNumber])
