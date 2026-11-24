@@ -13,6 +13,7 @@ import {
 import AdmZip from "adm-zip";
 import { backfillBooks } from "./bookkeeping.js";
 import { swapUploadFolders } from "./upload-swap.js";
+import { withReviewDefaults } from "./custom-review.js";
 import {
   db,
   dataDir,
@@ -194,6 +195,7 @@ export async function restoreBackup(id, req) {
       tables.some((t) => !Array.isArray(manifest.tables?.[t]))
     )
       throw fail("Format backup tidak valid");
+    manifest.tables.customRow = manifest.tables.customRow.map(withReviewDefaults);
     if (!manifest.tables.admin.some((admin) =>
       admin?.active && admin.role === "superadmin" && isBcuAdminEmail(admin.email),
     )) throw fail("Backup harus memuat Super Admin BCU aktif agar akses admin tetap tersedia.", 422);

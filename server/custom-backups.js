@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import AdmZip from "adm-zip";
 import { db, decrypt, fail } from "./core.js";
 import { archivePath } from "./backup.js";
+import { withReviewDefaults } from "./custom-review.js";
 
 // Read only the selected mode's editable workspace. Never return the full
 // archive: it contains credentials, master data, and the other mode as well.
@@ -31,6 +32,7 @@ export async function customBackupSnapshot(id, mode) {
     .sort((a, b) => a.position - b.position);
   const rows = manifest.tables.customRow
     .filter((r) => r.mode === mode)
+    .map(withReviewDefaults)
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
   const rowIds = new Set(rows.map((r) => r.id)),
     colIds = new Set(columns.map((c) => c.id));

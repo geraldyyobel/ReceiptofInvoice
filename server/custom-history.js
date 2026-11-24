@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { db, audit, fail } from "./core.js";
+import { withReviewDefaults } from "./custom-review.js";
 
 const limit = 50;
 const tables = new Set([
@@ -172,8 +173,10 @@ export async function navigateCustomHistory(req, direction, expectedId) {
           direction === "undo" ? [...entry.changes].reverse() : entry.changes
         ).map((c) => ({
           ...c,
-          from: direction === "undo" ? c.after : c.before,
-          to: direction === "undo" ? c.before : c.after,
+          from: c.table === "customRow" ? withReviewDefaults(direction === "undo" ? c.after : c.before)
+            : direction === "undo" ? c.after : c.before,
+          to: c.table === "customRow" ? withReviewDefaults(direction === "undo" ? c.before : c.after)
+            : direction === "undo" ? c.before : c.after,
         }));
         const conflict = () =>
           fail(

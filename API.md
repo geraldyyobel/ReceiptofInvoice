@@ -90,6 +90,22 @@ Respons: `{id,reference,token,email}`. Nilai tersembunyi dibuang server. `total`
 - Custom: query `year=current|all|YYYY`, `q` (maksimal 200 karakter), `sort=id_kolom|bookNumber`, `dir=asc|desc`, `page`, `size=1..100` (default 50). Pencarian/pengurutan dilakukan di server, respons hanya memuat sel dari baris halaman itu. `all=1` tidak lagi melewati pagination. Halaman di luar batas dijepit ke halaman terakhir. Respons menyertakan `{years:[{year,count}],year,currentYear,page,size,total}`, serta `bookYear`/`bookNumber` pada setiap baris. Kolom baru `{label,type,options:[]}`; patch kolom `{label,position,hidden,color,options}`. Sel `{rowId,columnId,value?,color?}`. Warna `#rrggbb` atau null. Patch baris `{color}`. Form publik yang berhasil disimpan langsung menambah baris salinan dalam transaksi yang sama. `POST /admin/custom/sync` memerlukan `{confirm:"SINKRONISASI ULANG"}`; hanya menambah baris master yang belum tersalin, tanpa menimpa edit atau membuat ulang kolom yang dihapus. Reset `{confirm:"RESET SALINAN"}` mengosongkan salinan; sinkronisasi ulang menyalin master kembali. Baris manual POST menerima `{year?:number}`. View `{name,config:{columns:[id],sort,dir,q,year}}`.
 - Ekspor `format=csv|xlsx`. Spreadsheet melindungi nilai teks yang dapat dianggap formula. CSV tidak menyimpan warna. Tidak ada endpoint edit/hapus master.
 
+### Review baris tabel kustom
+
+GET `/api/admin/custom` menerima `review=unchecked|flagged|noted|problem` bersama parameter tahun, pencarian, sorting dan pagination yang sudah ada. Tanpa parameter review, semua baris sesuai filter lain ditampilkan. `flagged` mencakup `followup` dan `problem`; `problem` hanya penanda bermasalah. Respons baris menambahkan `reviewChecked:boolean`, `reviewFlag:"followup"|"problem"|null`, `reviewNote:string|null`. Properti `reviewProgress={total,checked,flagged,noted}` menghitung seluruh baris mode/tahun terpilih, tanpa dipengaruhi pencarian, filter review atau halaman; `total` pada respons daftar tetap jumlah hasil setelah filter. Tahun `all` menghitung seluruh tahun mode aktif.
+
+PATCH `/api/admin/custom/rows/:id` tetap menerima `{color}`. Untuk review, kirim hanya field yang berubah, beserta nilai sebelumnya untuk setiap field tersebut:
+
+```json
+{"reviewNote":"Periksa faktur pajak","expectedReview":{"reviewNote":null},"expectedBookYear":2026}
+```
+
+Field review wajib sesuai tipe; `ok` ditolak, catatan maksimal 2.000 karakter, catatan kosong/hanya spasi disimpan sebagai null. `expectedReview` wajib untuk field review yang dikirim. `expectedBookYear` opsional (tahun atau null), disarankan dikirim dari baris yang sedang dibuka. Field lain ditolak (422). Login, izin menu Tabel Kustom, mode aktif/header `X-ROI-Mode` dan CSRF tetap wajib.
+
+Jika nilai pembanding berubah, server menolak seluruh patch dengan 409 dan `details={code:"CUSTOM_REVIEW_CONFLICT",rowId,bookYear,bookNumber,current:{reviewChecked,reviewFlag,reviewNote}}`. Jika tahun berpindah, kode `CUSTOM_ROW_MOVED`. Patch ditolak tanpa mengubah data/riwayat. Client harus mempertahankan draf lokal; muat ulang menggunakan data terkini, atau setelah admin memilih menimpa, kirim ulang draf dengan nilai pembanding terbaru. Tidak ada parameter untuk melewati pemeriksaan konflik. Respons penyimpanan mengembalikan baris beserta ID dan tahun buku; client harus mengabaikan respons milik baris/konteks lama. Perubahan parsial tidak menimpa field review lain; edit tercatat pada audit `custom.row.review` dan Undo/Redo per akun/mode.
+
+Ekspor CSV/XLSX aktif menerima filter review yang sama dan menyertakan kolom Dicek (`Ya`/`Tidak`), Penanda (`Tindak lanjut`/`Bermasalah`/kosong), Catatan; seluruh hasil filter diekspor. Snapshot JSON dan ekspor backup juga menyertakan review. Backup/riwayat sebelum kolom review ditambahkan dibaca dengan default false/null/null. Restore seluruh aplikasi memulihkan review dan tetap mengikuti otorisasi/konfirmasi yang sudah ada; tidak ada restore khusus tabel kustom. Sinkronisasi mempertahankan review baris yang sudah tersalin. Reset secara sengaja menghapus seluruh salinan termasuk review; sinkronisasi berikutnya membuat salinan dengan review default.
+
 ## Super Admin (global)
 
 | Metode | Rute | Payload |

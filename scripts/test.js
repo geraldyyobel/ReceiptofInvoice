@@ -36,6 +36,8 @@ for (const args of [
     "tests/browser.test.js",
     "tests/public-storage.test.js",
     "tests/custom-query.test.js",
+    "tests/custom-review.test.js",
+    "tests/custom-review-performance.test.js",
     "tests/review-regressions.test.js",
     "tests/notifications.test.js",
     "tests/dashboard.test.js",

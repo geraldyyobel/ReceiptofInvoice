@@ -3,6 +3,7 @@ import { z } from "zod";
 import { validDate } from "../shared/date-limits.js";
 import { db, fail, settings, inTimezone } from "./core.js";
 import { nextBookNumber, invoiceYear } from "./bookkeeping.js";
+import { reviewFields, reviewKeys, reviewConflict } from "./custom-review.js";
 import {
   customHistoryStatus,
   mutateCustom,
@@ -135,12 +136,38 @@ export function registerCustomEditingRoutes(app) {
     ));
   });
   app.patch("/api/admin/custom/rows/:id", async (req, res) => {
-    const b = { color: color.parse(req.body.color) };
-    res.json(
-      await mutateCustom(req, "Warna baris", "custom.row.color", (w) =>
-        w.patch("customRow", req.params.id, b),
-      ),
-    );
+    const b = z.strictObject({
+      color: color.optional(),
+      ...Object.fromEntries(reviewKeys.map((key) => [key, reviewFields[key].optional()])),
+      expectedReview: z.strictObject(reviewFields).partial().optional(),
+      expectedBookYear: z.number().int().min(1).max(9999).nullable().optional(),
+    }).refine((value) => ["color", ...reviewKeys].some((key) => value[key] !== undefined),
+      "Pilih field baris yang akan diubah").parse(req.body);
+    const changed = reviewKeys.filter((key) => b[key] !== undefined);
+    if (changed.some((key) => b.expectedReview?.[key] === undefined))
+      throw fail("Sertakan nilai review sebelumnya untuk setiap field yang diubah", 422);
+    const data = Object.fromEntries(["color", ...changed].filter((key) => b[key] !== undefined).map((key) =>
+      [key, key === "reviewNote" && !b[key]?.trim() ? null : b[key]]));
+    const label = changed.length > 1 ? "Ubah review" : changed[0] === "reviewChecked"
+      ? b.reviewChecked ? "Tandai dicek" : "Batalkan dicek"
+      : changed[0] === "reviewFlag" ? "Ubah penanda" : changed[0] === "reviewNote" ? "Ubah catatan" : "Warna baris";
+    try {
+      res.json(await mutateCustom(req, label, changed.length ? "custom.row.review" : "custom.row.color", async (w) => {
+        const row = await w.get("customRow", req.params.id);
+        if (b.expectedBookYear !== undefined && row.bookYear !== b.expectedBookYear)
+          throw fail("Baris telah berpindah tahun buku. Muat ulang sebelum menyimpan.", 409, reviewConflict(row, "CUSTOM_ROW_MOVED"));
+        if (changed.some((key) => row[key] !== b.expectedReview[key]))
+          throw fail("Review telah diubah admin lain. Pilih muat ulang atau simpan kembali dengan nilai terbaru sebagai pembanding.",
+            409, reviewConflict(row));
+        return w.patch("customRow", req.params.id, data);
+      }));
+    } catch (error) {
+      if (changed.length && error.status === 409 && !error.details) {
+        const row = await db.customRow.findFirst({ where: { id: req.params.id, mode: req.mode } });
+        if (row) error.details = reviewConflict(row);
+      }
+      throw error;
+    }
   });
   app.delete("/api/admin/custom/rows/:id", async (req, res) => {
     await mutateCustom(

@@ -3,6 +3,7 @@ import { setImmediate } from "node:timers/promises";
 import { db, audit, fail } from "./core.js";
 import { customOptions, customPlan, customRows } from "./custom-query.js";
 import { indexCells, spreadsheetSafe } from "../shared/table-data.js";
+import { reviewState } from "./custom-review.js";
 
 const batchSize = 500;
 async function write(res, text) {
@@ -27,7 +28,8 @@ export async function exportCustom(req, res, snapshot = null, includeHidden = fa
     const plan = snapshot ? null : await customPlan(client, req.mode, options);
     const columns = (snapshot?.columns || plan.columns).filter((c) => includeHidden || !c.hidden);
     const outputColumns = [...columns.map((c) => ({ ...c, key: c.id })),
-      { key: "$bookYear", label: "Tahun Buku" }, { key: "$bookNumber", label: "No. Buku" }];
+      { key: "$bookYear", label: "Tahun Buku" }, { key: "$bookNumber", label: "No. Buku" },
+      { key: "$reviewChecked", label: "Dicek" }, { key: "$reviewFlag", label: "Penanda" }, { key: "$reviewNote", label: "Catatan" }];
     res.setHeader("Content-Disposition", `attachment; filename="${res.locals.exportFilename || `tabel-kustom-${req.mode}-${plan?.year || "semua-tahun"}.${format}`}"`);
     res.type(format === "csv" ? "text/csv" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     let workbook, sheet;
@@ -52,7 +54,10 @@ export async function exportCustom(req, res, snapshot = null, includeHidden = fa
       let csv = "";
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i], lookup = cells.get(row.id);
-        const values = [...columns.map((c) => lookup?.get(c.id)?.value ?? ""), row.bookYear ?? "", row.bookNumber ?? ""];
+        const review = reviewState(row);
+        const values = [...columns.map((c) => lookup?.get(c.id)?.value ?? ""), row.bookYear ?? "", row.bookNumber ?? "",
+          review.reviewChecked ? "Ya" : "Tidak", review.reviewFlag === "followup" ? "Tindak lanjut" : review.reviewFlag === "problem" ? "Bermasalah" : "",
+          review.reviewNote ?? ""];
         if (format === "csv") csv += csvLine(values);
         else {
           const written = sheet.addRow(values.map(spreadsheetSafe));
@@ -70,7 +75,8 @@ export async function exportCustom(req, res, snapshot = null, includeHidden = fa
       await setImmediate();
     }
     // Log completion before ending the response, keeping backup drain semantics intact.
-    await audit(req, "export." + format, null, { rows: count, year: plan?.year ?? null, source: snapshot ? "backup" : "custom" }, req.mode, client);
+    await audit(req, "export." + format, null, { rows: count, year: plan?.year ?? null, review: options.review,
+      source: snapshot ? "backup" : "custom" }, req.mode, client);
     if (workbook) { sheet.commit(); finishWorkbook = () => workbook.commit(); }
   };
   try {
