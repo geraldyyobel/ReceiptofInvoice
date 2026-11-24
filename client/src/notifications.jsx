@@ -1,10 +1,12 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { api, date } from "./api";
+import { api, date, modeClient } from "./api";
 import { Modal, Notice, Busy, Pager } from "./ui";
+import { useLocation, queryUpdate } from "./navigation";
 const changed = () => window.dispatchEvent(new Event("roi-notifications-changed"));
 
 export function NotificationSummary({ onOpen }) {
+  const { api, download } = modeClient();
   const [data, setData] = useState(null), [error, setError] = useState("");
   const [page, setPage] = useState(1), [index, setIndex] = useState(0), touch = useRef(null);
   useEffect(() => {
@@ -69,6 +71,7 @@ export function NotificationSummary({ onOpen }) {
 }
 
 export function NotificationBell({ onOpen }) {
+  const { api, download } = modeClient();
   const [count, setCount] = useState(0);
   const [open, setOpen] = useState(false), trigger = useRef(null);
   const close = useCallback(() => setOpen(false), []);
@@ -91,6 +94,7 @@ export function NotificationBell({ onOpen }) {
   </>;
 }
 function NotificationPopup({ onClose, onViewAll, trigger }) {
+  const { api, download } = modeClient();
   const [data, setData] = useState(null), [error, setError] = useState(""), [busy, setBusy] = useState(false), [refresh, setRefresh] = useState(0);
   const root = useRef(null);
   useEffect(() => {
@@ -144,8 +148,13 @@ function NotificationPopup({ onClose, onViewAll, trigger }) {
   </Modal></div>, document.body);
 }
 export function Notifications({ admin, onError }) {
-  const [box, setBox] = useState("inbox"), [unread, setUnread] = useState(false), [page, setPage] = useState(1),
-    [data, setData] = useState(null), [reload, setReload] = useState(0), [compose, setCompose] = useState(false),
+  const { api, download } = modeClient();
+  const route = useLocation();
+  const box = route.searchParams.get("tab") === "sent" ? "sent" : "inbox";
+  const unread = route.searchParams.get("unread") === "1";
+  const page = Math.max(1, Math.min(1000000, Math.floor(Number(route.searchParams.get("page"))) || 1));
+  const setPage = (value) => queryUpdate({ page: value });
+  const [data, setData] = useState(null), [reload, setReload] = useState(0), [compose, setCompose] = useState(false),
     [people, setPeople] = useState([]), [busy, setBusy] = useState(false), [message, setMessage] = useState(""),
     [form, setForm] = useState(null), [formError, setFormError] = useState("");
   useEffect(() => {
@@ -158,7 +167,7 @@ export function Notifications({ admin, onError }) {
     const load = () => {
       const serial = ++request;
       return api(`/admin/notifications?box=${box}&unread=${unread ? 1 : 0}&page=${page}`)
-        .then((d) => { if (active && serial === request) { setData(d); if (d.page !== page) setPage(d.page); } })
+        .then((d) => { if (active && serial === request) { setData(d); if (d.page !== page) queryUpdate({ page: d.page }, { replace: true }); } })
         .catch((e) => { if (active && serial === request) onError(e); });
     };
     void load(); const timer = setInterval(() => { if (!document.hidden) void load(); }, 15000);
@@ -183,9 +192,9 @@ export function Notifications({ admin, onError }) {
     <Notice type="success">{message}</Notice>
     <div className="toolbar wrap">
       <button disabled={busy} onClick={openCompose}>＋ Buat notifikasi / pengingat</button>
-      <button className={box === "inbox" ? "" : "secondary"} onClick={() => { setBox("inbox"); setPage(1); }}>Kotak masuk</button>
-      <button className={box === "sent" ? "" : "secondary"} onClick={() => { setBox("sent"); setPage(1); }}>Terkirim / terjadwal</button>
-      {box === "inbox" && <><label className="check-label"><input type="checkbox" checked={unread} onChange={(e) => { setUnread(e.target.checked); setPage(1); }} />Belum dibaca saja</label>
+      <button className={box === "inbox" ? "" : "secondary"} onClick={() => queryUpdate({ tab: "inbox", page: null })}>Kotak masuk</button>
+      <button className={box === "sent" ? "" : "secondary"} onClick={() => queryUpdate({ tab: "sent", page: null })}>Terkirim / terjadwal</button>
+      {box === "inbox" && <><label className="check-label"><input type="checkbox" checked={unread} onChange={(e) => queryUpdate({ unread: e.target.checked ? "1" : null, page: null })} />Belum dibaca saja</label>
         <button className="secondary" disabled={busy} onClick={() => act("/admin/notifications/read-all")}>Tandai semua dibaca</button></>}
     </div>
     {!data || data.box !== box ? <Busy /> : <section className="paper notification-list">

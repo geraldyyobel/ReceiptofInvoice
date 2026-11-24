@@ -23,9 +23,9 @@ test("notifikasi antaradmin, pengingat, isolasi, UI dan backup", async (t) => {
   try {
     const ac = await login(a, process.env.ADMIN_EMAIL, process.env.ADMIN_PASSWORD);
     const post = (agent, token, url, body = {}) => agent.post("/api/admin/" + url).set("X-CSRF-Token", token).send(body);
-    for (const name of ["penerima", "lain"]) await post(a, ac, "admins", { name: "Admin " + name, email: name + "@notif.test", password: "TestNotif!2026", role: "admin", active: true }).expect(200);
-    const bc = await login(b, "penerima@notif.test", "TestNotif!2026"), cc = await login(c, "lain@notif.test", "TestNotif!2026");
-    const receiver = await db.admin.findUnique({ where: { email: "penerima@notif.test" } });
+    for (const name of ["penerima", "lain"]) await post(a, ac, "admins", { name: "Admin " + name, email: name + "@bcupt.id", password: "TestNotif!2026", role: "admin", active: true }).expect(200);
+    const bc = await login(b, "penerima@bcupt.id", "TestNotif!2026"), cc = await login(c, "lain@bcupt.id", "TestNotif!2026");
+    const receiver = await db.admin.findUnique({ where: { email: "penerima@bcupt.id" } });
     const payload = { title: "Pengingat dokumen", message: 'Periksa dokumen <img src=x onerror="window.__notifXss=1">', kind: "reminder", recipients: [receiver.id] };
     let first, future;
     await t.test("auth, CSRF dan daftar penerima tanpa rahasia", async () => {
@@ -75,7 +75,7 @@ test("notifikasi antaradmin, pengingat, isolasi, UI dan backup", async (t) => {
       const context = await browser.newContext(), page = await context.newPage(), errors = [];
       page.on("pageerror", (e) => errors.push(e.message));
       const token = (await (await context.request.get("http://127.0.0.1:3196/api/csrf")).json()).token;
-      await context.request.post("http://127.0.0.1:3196/api/auth/login", { headers: { "X-CSRF-Token": token }, data: { email: "penerima@notif.test", password: "TestNotif!2026" } });
+      await context.request.post("http://127.0.0.1:3196/api/auth/login", { headers: { "X-CSRF-Token": token }, data: { email: "penerima@bcupt.id", password: "TestNotif!2026" } });
       await context.request.post("http://127.0.0.1:3196/api/admin/mode", { headers: { "X-CSRF-Token": token }, data: { mode: "internal" } });
       await page.goto("http://127.0.0.1:3196/admin");
       const summary = page.locator(".notification-summary");

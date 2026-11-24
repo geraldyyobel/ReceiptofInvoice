@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Editor } from "@tinymce/tinymce-react";
-import { MailAccounts } from "./mail-accounts";
-import { api, download, date } from "./api";
-import { Busy, Notice, Modal, Color } from "./ui";
-export function TermsEditor({ onError, config }) {
+import { useLocation, settingsTabs, queryUpdate, navigateUrl } from "./navigation";
+import { accessPath, MenuAccessSettings } from "./menu-access";
+import { adminRoles } from "../../shared/admin-routing";
+import termsContentStyle from "./terms-content.css?raw";
+import { api, download, date, modeClient } from "./api";
+import { Busy, Notice, Modal, Color, Pager } from "./ui";
+export function TermsEditor({ onError, config, mode }) {
+  const { api, download } = modeClient();
   const [data, setData] = useState(null),
     [html, setHtml] = useState(""),
     [dirty, setDirty] = useState(false),
@@ -11,10 +15,30 @@ export function TermsEditor({ onError, config }) {
     [previewHtml, setPreviewHtml] = useState(""),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
-    [saveState, setSaveState] = useState("");
+    [saveState, setSaveState] = useState(""),
+    [imagePicker, setImagePicker] = useState(false);
+  const editorRef = useRef(null), latestHtml = useRef(""), savedHtml = useRef(""),
+    manualSave = useRef(false), draftQueue = useRef(Promise.resolve()), mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  async function readyHtml() {
+    const editor = editorRef.current;
+    if (editor && !editor.removed) {
+      const results = await editor.uploadImages();
+      if (results.some((r) => !r.status)) throw Error("Gambar belum berhasil diunggah. Coba unggah ulang sebelum menyimpan.");
+    }
+    const content = editor && !editor.removed ? editor.getContent() : latestHtml.current;
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    if ([...doc.images].some((img) => !/^\/uploads\/[a-zA-Z0-9-]+\.(png|jpg|webp)$/.test(img.getAttribute("src") || "")))
+      throw Error("Gambar belum tersimpan di server. Unggah gambar dari komputer sebelum menyimpan ketentuan.");
+    latestHtml.current = content;
+    if (mounted.current) setHtml(content);
+    return content;
+  }
   function load() {
     return api("/admin/terms").then((d) => {
+      if (!mounted.current) return;
       setData(d);
+      latestHtml.current = savedHtml.current = d.term.draft;
       setHtml(d.term.draft);
       setDirty(false);
     });
@@ -23,24 +47,38 @@ export function TermsEditor({ onError, config }) {
     load().catch(onError);
   }, []);
   useEffect(() => {
-    if (!dirty) return;
+    if (!dirty || busy || preview) return;
     const timer = setTimeout(() => {
-      setSaveState("Menyimpan draft…");
-      api("/admin/terms/draft", { method: "PUT", body: { html } })
-        .then(() => setSaveState("Draft tersimpan otomatis"))
-        .catch((e) => {
-          setSaveState("Draft belum tersimpan");
-          onError(e);
-        });
+      draftQueue.current = draftQueue.current.catch(() => {}).then(async () => {
+        if (!mounted.current || manualSave.current) return;
+        setSaveState("Menyiapkan gambar dan menyimpan draft…");
+        const content = await readyHtml();
+        if (!mounted.current || manualSave.current) return;
+        if (content !== savedHtml.current) {
+          await api("/admin/terms/draft", { method: "PUT", body: { html: content, mode } });
+          savedHtml.current = content;
+        }
+        if (mounted.current && !manualSave.current) setSaveState("Draft tersimpan otomatis");
+      });
+      draftQueue.current.catch((e) => {
+        if (mounted.current && !manualSave.current) { setSaveState("Draft belum tersimpan"); onError(e); }
+      });
     }, 1600);
     return () => clearTimeout(timer);
-  }, [html, dirty]);
+  }, [html, dirty, busy, preview]);
   async function save(publish) {
+    if (manualSave.current) return;
+    manualSave.current = true;
     setBusy(true);
     try {
+      setSaveState("Menyiapkan gambar dan menyimpan…");
+      await draftQueue.current.catch(() => {});
+      if (!mounted.current) return;
+      const content = await readyHtml();
+      if (!mounted.current) return;
       await api("/admin/terms/version", {
         method: "POST",
-        body: { html, publish },
+        body: { html: content, publish, mode },
       });
       setMessage(
         publish
@@ -48,10 +86,38 @@ export function TermsEditor({ onError, config }) {
           : "Versi ketentuan disimpan.",
       );
       await load();
+      setSaveState("Draft dan versi tersimpan");
     } catch (e) {
-      onError(e);
+      if (mounted.current) { setSaveState("Belum tersimpan"); onError(e); }
     } finally {
-      setBusy(false);
+      manualSave.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }
+  async function rollback(id) {
+    if (manualSave.current) return;
+    if (!confirm("Muat versi ini ke draft?")) return;
+    manualSave.current = true;
+    setBusy(true);
+    setSaveState("Menunggu penyimpanan dan memulihkan draft…");
+    try {
+      await draftQueue.current.catch(() => {});
+      if (!mounted.current) return;
+      const r = await api("/admin/terms/rollback/" + id, { method: "POST", body: { mode } });
+      if (!mounted.current) return;
+      latestHtml.current = savedHtml.current = r.html;
+      setHtml(r.html);
+      setData((d) => ({ ...d, term: { ...d.term, draft: r.html } }));
+      setDirty(false);
+      setPreview(false);
+      setPreviewHtml("");
+      setMessage("Versi dipulihkan ke draft. Publish untuk menayangkan.");
+      setSaveState("Versi dipulihkan ke draft");
+    } catch (e) {
+      if (mounted.current) { setSaveState("Pemulihan draft gagal"); onError(e); }
+    } finally {
+      manualSave.current = false;
+      if (mounted.current) setBusy(false);
     }
   }
   if (!data) return <Busy />;
@@ -61,6 +127,7 @@ export function TermsEditor({ onError, config }) {
         Edit ketentuan mode aktif. Draft tidak tampil ke vendor sampai
         dipublikasikan.
       </p>
+      <p className="muted">Ukuran huruf menggunakan piksel (px): pilih atau ketik 14px, 18px, dan seterusnya. Blok teks yang ingin diubah. Format lama dengan satuan pt tetap dipertahankan sampai Anda mengubahnya.</p>
       <Notice type="success">{message}</Notice>
       <section className="paper terms-visibility">
         <div>
@@ -84,7 +151,7 @@ export function TermsEditor({ onError, config }) {
               try {
                 const result = await api("/admin/terms/visibility", {
                   method: "PUT",
-                  body: { enabled, baseRevision: data.visibility.revision },
+                  body: { enabled, baseRevision: data.visibility.revision, mode },
                 });
                 setData((d) => ({ ...d, visibility: result.visibility }));
                 setMessage(
@@ -109,25 +176,36 @@ export function TermsEditor({ onError, config }) {
       <div className="toolbar">
         <button
           className="secondary"
+          disabled={busy}
           onClick={async () => {
             if (preview) {
               setPreview(false);
               return;
             }
+            manualSave.current = true;
+            setBusy(true);
             try {
+              await draftQueue.current.catch(() => {});
+              if (!mounted.current) return;
+              const content = await readyHtml();
+              if (!mounted.current) return;
               const r = await api("/admin/terms/preview", {
                 method: "POST",
-                body: { html },
+                body: { html: content, mode },
               });
               setPreviewHtml(r.html);
               setPreview(true);
             } catch (e) {
-              onError(e);
+              if (mounted.current) onError(e);
+            } finally {
+              manualSave.current = false;
+              if (mounted.current) setBusy(false);
             }
           }}
         >
           {preview ? "Kembali ke editor" : "Pratinjau tampilan vendor"}
         </button>
+        <button className="secondary" disabled={busy || preview} onClick={() => setImagePicker(true)}>Sisipkan gambar tersimpan</button>
         <div className="spacer" />
         <small className="muted">{saveState}</small>
         <button
@@ -148,10 +226,13 @@ export function TermsEditor({ onError, config }) {
         />
       ) : (
         <Editor
+          onInit={(_, editor) => { editorRef.current = editor; }}
+          disabled={busy}
           licenseKey={config.tinyLicense || "gpl"}
           tinymceScriptSrc="/vendor/tinymce/tinymce.min.js"
           value={html}
           onEditorChange={(v) => {
+            latestHtml.current = v;
             setHtml(v);
             setDirty(true);
           }}
@@ -164,10 +245,15 @@ export function TermsEditor({ onError, config }) {
             suffix: ".min",
             promotion: false,
             branding: false,
+            relative_urls: false,
+            remove_script_host: true,
             plugins:
               "lists advlist link image table code preview searchreplace visualblocks wordcount charmap autoresize",
             toolbar:
-              "undo redo | blocks fontfamily fontsize | bold italic underline | forecolor backcolor | alignleft aligncenter alignright alignjustify | lineheight | bullist numlist outdent indent | image table link hr | removeformat code",
+              "undo redo | blocks fontfamily fontsizeinput | bold italic underline | forecolor backcolor | alignleft aligncenter alignright alignjustify | lineheight | bullist numlist outdent indent | image table link hr | removeformat code",
+            font_size_formats: "8px 10px 11px 12px 14px 15px 16px 17px 18px 20px 22px 24px 28px 32px 36px 48px",
+            font_size_input_default_unit: "px",
+            body_class: "roi-terms-content",
             automatic_uploads: true,
             paste_data_images: true,
             image_dimensions: true,
@@ -176,6 +262,7 @@ export function TermsEditor({ onError, config }) {
             images_file_types: "jpg,jpeg,png,webp",
             images_upload_handler: async (blobInfo) => {
               const body = new FormData();
+              body.append("mode", mode);
               body.append("file", blobInfo.blob(), blobInfo.filename());
               return (await api("/admin/uploads", { method: "POST", body }))
                 .location;
@@ -187,6 +274,7 @@ export function TermsEditor({ onError, config }) {
               input.onchange = async () => {
                 try {
                   const body = new FormData();
+                  body.append("mode", mode);
                   body.append("file", input.files[0]);
                   const u = await api("/admin/uploads", {
                     method: "POST",
@@ -199,8 +287,7 @@ export function TermsEditor({ onError, config }) {
               };
               input.click();
             },
-            content_style:
-              "body{font-family:Arial,sans-serif;font-size:15px;line-height:1.7;color:#24352d;max-width:850px;margin:24px auto;padding:0 24px}img{max-width:100%;height:auto}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:8px}",
+            content_style: termsContentStyle,
           }}
         />
       )}
@@ -221,21 +308,8 @@ export function TermsEditor({ onError, config }) {
               </span>
               <button
                 className="secondary small"
-                onClick={() => {
-                  if (confirm("Muat versi ini ke draft?"))
-                    api("/admin/terms/rollback/" + v.id, {
-                      method: "POST",
-                      body: {},
-                    })
-                      .then((r) => {
-                        setHtml(r.html);
-                        setDirty(false);
-                        setMessage(
-                          "Versi dipulihkan ke draft. Publish untuk menayangkan.",
-                        );
-                      })
-                      .catch(onError);
-                }}
+                disabled={busy}
+                onClick={() => rollback(v.id)}
               >
                 Rollback ke draft
               </button>
@@ -243,8 +317,36 @@ export function TermsEditor({ onError, config }) {
           ))}
         </div>
       </section>
+      {imagePicker && <StoredImages onClose={() => setImagePicker(false)} onInsert={(image) => {
+        const editor = editorRef.current;
+        if (!editor || editor.removed) return;
+        editor.focus();
+        editor.insertContent(`<img src="${editor.dom.encode(image.location)}" alt="${editor.dom.encode(image.name)}">`);
+        setImagePicker(false);
+      }} />}
     </>
   );
+}
+function StoredImages({ onInsert, onClose }) {
+  const { api, download } = modeClient();
+  const [data, setData] = useState(null), [page, setPage] = useState(1), [error, setError] = useState(""), [retry, setRetry] = useState(0);
+  useEffect(() => {
+    let active = true; setData(null); setError("");
+    api("/admin/images?page=" + page + "&size=12").then((d) => { if (active) setData(d); }).catch((e) => { if (active) setError(e.message); });
+    return () => { active = false; };
+  }, [page, retry]);
+  return <Modal title="Gambar tersimpan" onClose={onClose}>
+    <p className="muted">Gambar yang pernah diunggah pada mode aktif. Pilih posisi pada editor, lalu sisipkan gambar di sini. Gambar tidak disisipkan otomatis ke ketentuan.</p>
+    <Notice type="error">{error}</Notice>
+    {error && <button className="secondary" onClick={() => setRetry((n) => n + 1)}>Coba lagi</button>}
+    {!data ? !error && <Busy /> : <>
+      {!data.rows.length && <p className="empty">Belum ada gambar tersimpan.</p>}
+      <div className="stored-images">{data.rows.map((image) => <button className="secondary" key={image.id} onClick={() => onInsert(image)}>
+        <img src={image.location} alt="" loading="lazy" /><span>{image.name}</span><small>{date(image.createdAt)}</small><b>Sisipkan</b>
+      </button>)}</div>
+      <Pager {...data} onChange={setPage} />
+    </>}
+  </Modal>;
 }
 const placeholders = [
   "nomor_referensi",
@@ -277,7 +379,47 @@ const placeholders = [
   "email_anda",
   "permintaan_via",
 ];
+function EmailPlaceholders({ subject, body, onError }) {
+  const [preview, setPreview] = useState(null), [busy, setBusy] = useState(false);
+  const generation = useRef(0);
+  useEffect(() => {
+    generation.current++; setPreview(null);
+    return () => { generation.current++; };
+  }, [subject, body]);
+  return <fieldset className="email-placeholders">
+    <legend>Placeholder subjek dan isi email</legend>
+    <p>Gunakan kode di bawah pada subjek atau isi email. Klik untuk menyalin.
+      Nomor dan tahun buku mengikuti master berdasarkan tanggal invoice. Pengaturan email berlaku untuk kedua mode.</p>
+    <p>Contoh subjek: <code>{"Receipt of Invoice — Buku {{nomor_buku}} / {{tahun_buku}}"}</code></p>
+    <details><summary>Daftar placeholder email</summary>
+      <p>Kode field kustom dari Form Builder juga dapat dipakai. Field yang kosong atau tidak ada menghasilkan teks kosong.</p>
+      <div className="placeholder-list">{[
+        ...placeholders,
+        "format_number total", "format_number amount_nett", "format_number vat",
+        "format_date invoice_date 'dd-MM-yyyy'", "format_date legalitas_tanggal 'dd-MM-yyyy'",
+      ].map((code) => <button key={code} type="button" className="secondary small" onClick={async () => {
+        try { await navigator.clipboard.writeText("{{" + code + "}}"); }
+        catch { onError(new Error("Penyalinan tidak tersedia. Pilih dan salin kode placeholder secara manual.")); }
+      }}>{"{{" + code + "}}"}</button>)}</div>
+    </details>
+    <p>Pratinjau menggunakan data contoh: No. Buku 1, PT Contoh Vendor, IDR 1.110.000,00.
+      Pratinjau tidak mengirim email atau menyimpan pengaturan. Tes kirim email di bawah hanya menguji koneksi.</p>
+    <button type="button" className="secondary" disabled={busy} onClick={async () => {
+      const current = ++generation.current;
+      setBusy(true); setPreview(null);
+      try {
+        const result = await api("/admin/settings/preview-email", { method: "POST", body: { email_subjek: subject, email_isi: body } });
+        if (generation.current === current) setPreview(result);
+      } catch (e) { if (generation.current === current) onError(e); }
+      finally { setBusy(false); }
+    }}>{busy ? "Memuat pratinjau…" : "Pratinjau email"}</button>
+    {preview && <div role="region" aria-label="Pratinjau email" className="email-preview">
+      <p><b>Subjek:</b> {preview.subject}</p><b>Isi email:</b><pre>{preview.text}</pre>
+    </div>}
+  </fieldset>;
+}
 export function TemplateEditor({ onError }) {
+  const { api, download } = modeClient();
   const [data, setData] = useState(null),
     [html, setHtml] = useState(""),
     [preview, setPreview] = useState(""),
@@ -498,14 +640,14 @@ const settingGroups = [
   ],
   ["Unggahan", [["upload_mb", "Batas ukuran (MB)", "number"]]],
 ];
-export function Settings({ onError, refreshConfig }) {
+export function Settings({ onError, refreshConfig, refreshAccess }) {
+  const route = useLocation();
+  const requestedTab = route.searchParams.get("tab");
+  const tab = Object.hasOwn(settingsTabs, requestedTab) ? settingsTabs[requestedTab] : (route.searchParams.has("mail_oauth") ? "Email / SMTP" : "Umum");
+  const setTab = (label) => queryUpdate({ tab: Object.keys(settingsTabs).find((key) => settingsTabs[key] === label) });
   const [s, setS] = useState(null),
     [accounts, setAccounts] = useState([]),
-    [tab, setTab] = useState(
-      new URLSearchParams(location.search).has("mail_oauth")
-        ? "Email / SMTP"
-        : "Umum",
-    ),
+    [menuPolicy, setMenuPolicy] = useState(null),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
     [testEmail, setTestEmail] = useState(""),
@@ -514,9 +656,18 @@ export function Settings({ onError, refreshConfig }) {
     return Promise.all([
       api("/admin/settings").then((d) => setS({ ...d, smtp_password: "" })),
       api("/admin/admins").then(setAccounts),
+      api(accessPath).then(setMenuPolicy),
     ]);
   }
   useEffect(() => {
+    if (route.searchParams.has("mail_oauth")) {
+      setMessage("Fitur login Google/Outlook telah dihapus. Gunakan konfigurasi SMTP.");
+      const clean = new URL(window.location.href);
+      clean.pathname = "/admin/settings";
+      clean.searchParams.delete("mail_oauth");
+      clean.searchParams.set("tab", "email");
+      navigateUrl(clean.href, { replace: true });
+    }
     load().catch(onError);
   }, []);
   if (!s) return <Busy />;
@@ -538,6 +689,7 @@ export function Settings({ onError, refreshConfig }) {
     }
   }
   const group = settingGroups.find((g) => g[0] === tab);
+  const roleLabels = menuPolicy?.roleLabels || adminRoles;
   return (
     <>
       <Notice>
@@ -547,7 +699,7 @@ export function Settings({ onError, refreshConfig }) {
       <Notice type="success">{message}</Notice>
       <div className="settings-grid">
         <aside className="paper settings-nav">
-          {[...settingGroups.map((g) => g[0]), "Tema warna", "Akun admin"].map(
+          {Object.values(settingsTabs).map(
             (t) => (
               <button
                 className={tab === t ? "selected" : ""}
@@ -561,7 +713,9 @@ export function Settings({ onError, refreshConfig }) {
         </aside>
         <section className="paper">
           <h2>{tab}</h2>
-          {tab === "Akun admin" ? (
+          {tab === "Akses Menu" ? (
+            <MenuAccessSettings accounts={accounts} policy={menuPolicy} setPolicy={setMenuPolicy} refreshAccess={refreshAccess} />
+          ) : tab === "Akun admin" ? (
             <>
               <button
                 onClick={() =>
@@ -582,7 +736,7 @@ export function Settings({ onError, refreshConfig }) {
                     <div>
                       <b>{a.name}</b>
                       <small>
-                        {a.email} · {a.role} · {a.active ? "Aktif" : "Nonaktif"}
+                        {a.email} · {roleLabels[a.role] || a.role} · {a.active ? "Aktif" : "Nonaktif"}
                       </small>
                     </div>
                     <button
@@ -597,30 +751,15 @@ export function Settings({ onError, refreshConfig }) {
             </>
           ) : (
             <form onSubmit={save}>
-              {tab === "Email / SMTP" && (
-                <MailAccounts
-                  method={s.email_transport}
-                  onMethodChange={(v) =>
-                    setS((d) => ({ ...d, email_transport: v }))
-                  }
-                  onConnectedSender={(v) =>
-                    setS((d) => ({ ...d, email_pengirim: v }))
-                  }
-                  onRefresh={load}
-                  onError={onError}
-                />
-              )}
+              {tab === "Email / SMTP" && <section className="smtp-settings">
+                <p>Pengiriman dokumen menggunakan SMTP. Simpan pengaturan sebelum menjalankan tes kirim email.</p>
+                <label>Metode pengiriman email<select aria-label="Metode pengiriman email" value={s.email_transport || "smtp"} onChange={(e) => update("email_transport", e.target.value)}>
+                  <option value="smtp">SMTP</option><option value="none">Tidak aktif</option>
+                </select></label>
+              </section>}
               {group && (
                 <div className="form-grid">
                   {group[1]
-                    .filter(
-                      ([key]) =>
-                        !(
-                          tab === "Email / SMTP" &&
-                          (s.email_transport || "smtp") !== "smtp" &&
-                          key.startsWith("smtp_")
-                        ),
-                    )
                     .map(([key, label, type = "text"]) => (
                       <label
                         key={key}
@@ -635,16 +774,14 @@ export function Settings({ onError, refreshConfig }) {
                           />
                         ) : type === "textarea" ? (
                           <textarea
+                            aria-label={label}
                             value={s[key] || ""}
                             onChange={(e) => update(key, e.target.value)}
                           />
                         ) : (
                           <input
+                            aria-label={label}
                             type={type}
-                            readOnly={
-                              key === "email_pengirim" &&
-                              ["gmail", "outlook"].includes(s.email_transport)
-                            }
                             value={s[key] ?? ""}
                             onChange={(e) =>
                               update(
@@ -679,7 +816,7 @@ export function Settings({ onError, refreshConfig }) {
                           if (!e.target.files[0]) return;
                           const body = new FormData();
                           body.append("file", e.target.files[0]);
-                          const u = await api("/admin/uploads", {
+                          const u = await api("/admin/settings/logo", {
                             method: "POST",
                             body,
                           });
@@ -743,6 +880,7 @@ export function Settings({ onError, refreshConfig }) {
                   ))}
                 </fieldset>
               )}
+              {tab === "Email / SMTP" && <EmailPlaceholders subject={s.email_subjek} body={s.email_isi} onError={onError} />}
               {tab === "Email / SMTP" &&
                 (s.email_transport || "smtp") === "smtp" && (
                   <small>
@@ -847,8 +985,7 @@ export function Settings({ onError, refreshConfig }) {
                   setAccount({ ...account, role: e.target.value })
                 }
               >
-                <option value="admin">Admin</option>
-                <option value="superadmin">Super Admin</option>
+                {Object.entries(roleLabels).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
               </select>
             </label>
             <label className="check-label">

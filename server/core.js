@@ -6,6 +6,7 @@ import { mkdir } from "node:fs/promises";
 import sanitizeHtml from "sanitize-html";
 import Handlebars from "handlebars";
 import { amountTotal } from "../shared/engine.js";
+import { publicSettingKeys } from "../shared/email-placeholders.js";
 export const db = new PrismaClient({
   transactionOptions: { maxWait: 15000, timeout: 30000 },
 });
@@ -105,7 +106,7 @@ const cssProperties = [
   "border-collapse",
   "vertical-align",
 ];
-export function cleanHtml(html, template = false) {
+export function cleanHtml(html, template = false, { rejectPendingImages = false } = {}) {
   if (typeof html !== "string" || html.length > 1500000)
     throw fail("HTML tidak valid/terlalu besar");
   if (template) {
@@ -166,6 +167,15 @@ export function cleanHtml(html, template = false) {
         frame.attribs.src || "",
       ),
     transformTags: {
+      img: (tagName, attribs) => {
+        if (rejectPendingImages && /^(?:blob|data):/i.test((attribs.src || "").trim()))
+          throw fail("Gambar belum selesai diunggah. Tunggu unggahan selesai sebelum menyimpan ketentuan.", 422);
+        // Older TinyMCE versions stored application upload URLs relative to the admin page.
+        const src = (attribs.src || "").trim();
+        if (/^(?:\.\.?\/)*uploads\/[a-zA-Z0-9-]+\.(png|jpg|webp)$/.test(src))
+          attribs.src = "/" + src.replace(/^(?:\.\.?\/)*/, "");
+        return { tagName, attribs };
+      },
       a: sanitizeHtml.simpleTransform("a", { rel: "noopener noreferrer" }),
     },
     allowVulnerableTags: template,
@@ -183,21 +193,13 @@ Handlebars.registerHelper("format_date", (v) => {
   const [y, m, d] = String(v).slice(0, 10).split("-");
   return `${d}-${m}-${y}`;
 });
-export function renderHtml(template, values, reference, s, year, book = {}) {
+export function templateData(values, reference, s, year, book = {}) {
   const documentSettings = Object.fromEntries(
-    [
-      "nama_aplikasi",
-      "nama_perusahaan",
-      "kop",
-      "penerima_nama",
-      "kode_form",
-      "zona_waktu",
-      "logo",
-    ]
+    publicSettingKeys
       .filter((key) => Object.hasOwn(s || {}, key))
       .map((key) => [key, s[key]]),
   );
-  const data = {
+  return {
     ...values,
     total: amountTotal(values.amount_nett, values.vat),
     nomor_referensi: reference,
@@ -206,6 +208,9 @@ export function renderHtml(template, values, reference, s, year, book = {}) {
     tahun: year,
     setting: documentSettings,
   };
+}
+export function renderHtml(template, values, reference, s, year, book = {}) {
+  const data = templateData(values, reference, s, year, book);
   return Handlebars.compile(cleanHtml(template, true), { strict: false })(data);
 }
 export const inTimezone = (date, tz) =>

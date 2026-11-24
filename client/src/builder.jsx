@@ -1,7 +1,7 @@
 import { RuleEditor } from "./rules";
 import { DateRules } from "./date-rules";
-import React, { useEffect, useState } from "react";
-import { api } from "./api";
+import React, { useEffect, useState, useRef } from "react";
+import { api, modeClient } from "./api";
 import { Busy, Notice, Field } from "./ui";
 import { pathFor, validateDefinition, describeRule } from "../../shared/engine";
 const types = [
@@ -15,6 +15,7 @@ const types = [
   ["file", "Upload file"],
 ];
 export function FormBuilder({ onError, config }) {
+  const { api, download } = modeClient();
   const [data, setData] = useState(null),
     [fields, setFields] = useState([]),
     [sections, setSections] = useState([]),
@@ -25,7 +26,9 @@ export function FormBuilder({ onError, config }) {
     [message, setMessage] = useState(""),
     [drag, setDrag] = useState(null),
     [note, setNote] = useState(""),
-    [dirty, setDirty] = useState(false);
+    [dirty, setDirty] = useState(false),
+    [codeUnlocked, setCodeUnlocked] = useState(false);
+  const codeInput = useRef(null);
   function load() {
     api("/admin/form")
       .then((d) => {
@@ -33,6 +36,7 @@ export function FormBuilder({ onError, config }) {
         setFields(d.version.fields);
         setSections(d.version.sections);
         setDirty(false);
+        setCodeUnlocked(false);
       })
       .catch(onError);
   }
@@ -65,6 +69,7 @@ export function FormBuilder({ onError, config }) {
     a.splice(to, 0, item);
     setFields(a);
     setSelected(to);
+    setCodeUnlocked(false);
     setDirty(true);
   }
   async function save() {
@@ -81,6 +86,7 @@ export function FormBuilder({ onError, config }) {
         versions: [r.version, ...data.versions],
       });
       setDirty(false);
+      setCodeUnlocked(false);
       setMessage(
         "Versi form baru disimpan dan aktif. Submission lama tetap memakai versinya.",
       );
@@ -147,6 +153,7 @@ export function FormBuilder({ onError, config }) {
               setFields(v.fields);
               setSections(v.sections);
               setSelected(0);
+              setCodeUnlocked(false);
               setDirty(true);
               setMessage(
                 "Versi lama dimuat ke editor. Simpan versi baru untuk mengaktifkannya.",
@@ -188,6 +195,7 @@ export function FormBuilder({ onError, config }) {
                     },
                   ]);
                   setSelected(fields.length);
+                  setCodeUnlocked(false);
                   setDirty(true);
                 }}
               >
@@ -211,7 +219,7 @@ export function FormBuilder({ onError, config }) {
                   "field-list-row " + (selected === i ? "selected" : "")
                 }
               >
-                <button className="ghost" onClick={() => setSelected(i)}>
+                <button className="ghost" onClick={() => { setSelected(i); setCodeUnlocked(false); }}>
                   <span className="drag-handle">⠿ {i + 1}.</span>
                   {x.label}
                   <small>
@@ -307,17 +315,29 @@ export function FormBuilder({ onError, config }) {
                 <h2>Pengaturan pertanyaan</h2>
                 <span className="small-tag">#{selected + 1}</span>
               </div>
-              <label>
-                Kode field
-                <input
-                  value={f.code}
-                  onChange={(e) => update({ code: e.target.value })}
-                />
-                <small>
-                  Kode adalah identitas historis. Hindari mengganti kode setelah
-                  menerima data.
-                </small>
-              </label>
+              <div className="field-code-setting">
+                <label htmlFor="builder-field-code">Kode field</label>
+                <div className="field-code-control">
+                  <input id="builder-field-code" ref={codeInput} value={f.code}
+                    readOnly={!codeUnlocked || busy} aria-describedby="builder-field-code-help"
+                    onChange={(e) => { if (codeUnlocked) update({ code: e.target.value }); }} />
+                  <button type="button" className="secondary" disabled={busy}
+                    aria-label={codeUnlocked ? "Kunci kode field" : "Buka kunci kode field"}
+                    title={codeUnlocked ? "Kunci kode field" : "Buka kunci kode field"}
+                    aria-pressed={codeUnlocked} aria-controls="builder-field-code"
+                    onClick={() => {
+                      setCodeUnlocked(!codeUnlocked);
+                      if (!codeUnlocked) requestAnimationFrame(() => codeInput.current?.focus());
+                    }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                      <rect x="5" y="10" width="14" height="11" rx="2" />
+                      <path d={codeUnlocked ? "M8 10V6a4 4 0 0 1 7.5-2" : "M8 10V6a4 4 0 0 1 8 0v4"} />
+                      <path d="M12 14v3" />
+                    </svg>
+                  </button>
+                </div>
+                <small id="builder-field-code-help" className="muted">Klik gembok untuk {codeUnlocked ? "mengunci kembali" : "mengubah kode"}. Kode adalah identitas historis. Hindari mengganti kode setelah menerima data.</small>
+              </div>
               <label>
                 Label
                 <textarea
@@ -677,6 +697,7 @@ export function FormBuilder({ onError, config }) {
                   ) {
                     setFields(fields.filter((_, i) => i !== selected));
                     setSelected(Math.max(0, selected - 1));
+                    setCodeUnlocked(false);
                     setDirty(true);
                   }
                 }}

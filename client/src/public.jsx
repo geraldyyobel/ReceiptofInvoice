@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { api, download, money } from "./api";
 import { Notice, Field, Busy, BrandMark } from "./ui";
+import { ReceiptSearch } from "./receipt-search";
 import {
   pathFor,
   validateAnswers,
@@ -8,50 +9,33 @@ import {
   empty,
   applyAnswer,
 } from "../../shared/engine";
-export function ModeCards({ onSelect, admin = false }) {
-  const Card = admin ? "button" : "a";
+export function ModeCards({ onSelect }) {
   return (
     <div className="mode-grid">
-      <Card
+      <button
         className="mode-card eksternal"
-        href={admin ? undefined : "/eksternal"}
-        onClick={admin ? () => onSelect("eksternal") : undefined}
+        onClick={() => onSelect("eksternal")}
       >
         <span className="mode-icon">↗</span>
         <span className="eyebrow">VENDOR & MITRA</span>
         <h2>Eksternal</h2>
-        <p>
-          {admin
-            ? "Kelola form dan penyerahan invoice vendor eksternal."
-            : "Serahkan invoice perusahaan Anda beserta informasi pendukung."}
-        </p>
+        <p>Kelola form dan penyerahan invoice vendor eksternal.</p>
         <span className="card-link">
-          {admin ? "Kelola mode" : "Mulai pengisian"} <b>→</b>
+          Kelola mode <b>→</b>
         </span>
-        {!admin && (
-          <small className="direct-link">Tautan khusus: /eksternal</small>
-        )}
-      </Card>
-      <Card
+      </button>
+      <button
         className="mode-card internal"
-        href={admin ? undefined : "/internal"}
-        onClick={admin ? () => onSelect("internal") : undefined}
+        onClick={() => onSelect("internal")}
       >
         <span className="mode-icon">▦</span>
         <span className="eyebrow">LINGKUNGAN BCU</span>
         <h2>Internal</h2>
-        <p>
-          {admin
-            ? "Kelola form dan penyerahan invoice internal BCU."
-            : "Gunakan alur penyerahan invoice untuk kebutuhan internal BCU."}
-        </p>
+        <p>Kelola form dan penyerahan invoice internal BCU.</p>
         <span className="card-link">
-          {admin ? "Kelola mode" : "Mulai pengisian"} <b>→</b>
+          Kelola mode <b>→</b>
         </span>
-        {!admin && (
-          <small className="direct-link">Tautan khusus: /internal</small>
-        )}
-      </Card>
+      </button>
     </div>
   );
 }
@@ -60,7 +44,7 @@ export function PublicApp({ config }) {
     /^\/(internal|eksternal)\/?$/.exec(location.pathname)?.[1] || null;
   const [mode, setMode] = useState(routeMode),
     [data, setData] = useState(null),
-    [step, setStep] = useState(routeMode ? "loading" : "mode"),
+    [step, setStep] = useState(routeMode ? "loading" : "search"),
     [values, setValues] = useState({}),
     [accepted, setAccepted] = useState(false),
     [startedAt, setStartedAt] = useState(""),
@@ -258,35 +242,15 @@ export function PublicApp({ config }) {
             <small>PORTAL PENYERAHAN INVOICE</small>
           </span>
         </a>
-        <a href="/admin" className="admin-link">
-          Akses admin ↗
-        </a>
       </header>
-      <main className={"public-main " + (step === "mode" ? "wide" : "")}>
-        {step === "mode" ? (
-          <>
-            <span className="eyebrow">ADMINISTRASI KEUANGAN · 2026</span>
-            <h1>
-              Penyerahan invoice,
-              <br />
-              <span className="green-text">lebih tertata.</span>
-            </h1>
-            <p className="lead">
-              Isi informasi tagihan, periksa kembali, lalu unduh Receipt of
-              Invoice Anda dalam satu alur.
-            </p>
-            <ModeCards onSelect={loadMode} />
-            <div className="intro-foot">
-              <span>01 &nbsp; Baca ketentuan</span>
-              <span>02 &nbsp; Lengkapi form</span>
-              <span>03 &nbsp; Unduh dokumen</span>
-            </div>
-          </>
+      <main className={"public-main " + (step === "search" ? "receipt-home" : "")}>
+        {step === "search" ? (
+          <ReceiptSearch />
         ) : (
           <>
             <div className="between">
               <a className="ghost" href="/">
-                ← Pilih jenis
+                ← Halaman utama
               </a>
               <span className="mode-badge">{mode}</span>
             </div>
@@ -505,8 +469,11 @@ export function PublicApp({ config }) {
                   <div className="success-icon">✓</div>
                   <span className="eyebrow">PENYERAHAN TERCATAT</span>
                   <h1>Receipt of Invoice siap.</h1>
-                  <p>Simpan nomor referensi untuk administrasi tagihan Anda.</p>
+                  <p>Simpan nomor ini untuk mencari dokumen Anda di halaman utama.</p>
                   <div className="reference">{success.reference}</div>
+                  {success.bookNumber && success.bookYear && (
+                    <p>Nomor buku <strong>{success.bookNumber}</strong> · Tahun buku <strong>{success.bookYear}</strong></p>
+                  )}
                   <Notice type="warning">{storageWarning}</Notice>
                   <div className="button-row">
                     <button

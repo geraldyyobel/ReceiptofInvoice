@@ -7,7 +7,11 @@ import { ensureLocalPostgres } from "./local-postgres.js";
 import { decrypt, db } from "../server/core.js";
 const testFiles = [
   "tests/engine.test.js", "tests/automation.test.js", "tests/integration.test.js",
-  "tests/templates.test.js", "tests/mail-oauth.test.js", "tests/browser.test.js",
+  "tests/templates.test.js", "tests/browser.test.js",
+  "tests/email-placeholders.test.js",
+  "tests/admin-routes.test.js",
+  "tests/mode-routing.test.js",
+  "tests/smtp-only.test.js",
   "tests/public-storage.test.js",
   "tests/custom-query.test.js",
   "tests/review-regressions.test.js",
@@ -15,6 +19,10 @@ const testFiles = [
   "tests/dashboard.test.js",
     "tests/ui-races.test.js",
     "tests/auth-races.test.js",
+    "tests/admin-otp.test.js",
+    "tests/terms-font.test.js",
+    "tests/terms-images.test.js",
+    "tests/terms-rollback.test.js",
 ];
 const requestedTests = process.argv.slice(2);
 if (requestedTests.some((file) => !testFiles.includes(file)))

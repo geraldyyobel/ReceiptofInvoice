@@ -9,6 +9,12 @@ Semua rute di bawah memakai prefix `/api`, JSON, dan cookie session same-origin.
 3. `POST /auth/login` dengan `{email,password}` membuat cookie httpOnly. `GET /auth/me` mengembalikan admin dan mode aktif. `POST /auth/logout` menutup session.
 4. `POST /admin/mode` dengan `{mode:"internal"|"eksternal"}` memilih mode pada session. Semua endpoint admin lainnya memerlukan mode. Jangan mengirim mode melalui query untuk melewati ruang kerja aktif.
 
+Respons login dan `GET /auth/me` menyertakan `admin.menus` untuk akun yang masuk. Super Admin dapat membaca aturan melalui `GET /admin/settings/menu-access`, mengubah izin role melalui `PUT /admin/settings/menu-access/roles/:role` dengan `{menus: [...]}`, dan mengubah pengecualian akun melalui `PUT /admin/settings/menu-access/accounts/:id` dengan `{overrides: {menu: true|false}}`. Hapus kunci dari `overrides` agar izin menu kembali mengikuti role. Server mengembalikan `403` pada endpoint milik menu yang diblokir.
+
+Login admin hanya berlaku untuk email `@bcupt.id`. `POST /auth/otp/request` dengan `{email}` mengembalikan `202` dan `{challenge,resendAfter}`. `POST /auth/otp/verify` dengan `{email,challenge,code}` memakai cookie dan token CSRF dari browser yang meminta kode. Verifikasi sukses mengembalikan bentuk respons dan cookie yang sama dengan login password. Email baru dibuat sebagai `user` hanya setelah verifikasi sukses. Akun nonaktif tidak dapat masuk.
+
+Super Admin membuat role kustom dengan `POST /admin/settings/menu-access/roles` dan `{label}`, lalu menyimpan izin melalui endpoint role. `GET /admin/settings/menu-access` menyertakan `roleLabels` untuk pilihan akun. Role `user` memiliki akses tetap ke daftar dan detail master.
+
 ## Publik
 
 | Metode | Rute | Keterangan |
@@ -17,12 +23,16 @@ Semua rute di bawah memakai prefix `/api`, JSON, dan cookie session same-origin.
 | GET | `/public/config` | Nama/logo/warna/zona waktu, tanpa rahasia |
 | GET | `/public/:mode/form` | `{form,terms,mode}` berisi versi dan ketentuan terpublikasi |
 | POST | `/public/:mode/submit` | Simpan jawaban bersih dan nomor referensi |
+| POST | `/public/receipts/lookup` | `{criteria, proofs: [{id, token}]}`; mengembalikan `{found, receipt}`. Metadata `receipt` hanya diberikan jika token cocok |
+| POST | `/public/receipts/email` | `{criteria, email}`; kirim PDF ke alamat penyerahan yang cocok dan kembalikan `202` |
 | POST | `/public/:mode/upload` | Multipart `file`, mengembalikan `id`, `value` dan nama |
 | GET | `/public/submissions/:id/document/pdf` | PDF A4 |
 | GET | `/public/submissions/:id/document/html` | HTML siap cetak |
 | POST | `/public/submissions/:id/email` | `{email}`; PDF sebagai lampiran |
 
 Download/email publik memerlukan `X-Document-Token` dari respons submit. Token tidak diletakkan pada URL. Upload vendor privat hanya dilayani melalui endpoint admin; gunakan `value` yang dikembalikan sebagai nilai field file.
+
+Pencarian memakai `criteria` berupa `{by:"reference", reference}` atau `{by:"book", mode, bookYear, bookNumber}`. Kedua rute pencarian memerlukan CSRF. Permintaan email dengan nomor atau email yang tidak cocok menerima respons yang sama.
 
 Payload submit:
 
@@ -97,7 +107,7 @@ Password SMTP hanya dapat ditulis; GET mengembalikan `smtp_password_set`. Passwo
 
 Tampilan ketentuan: `GET /admin/terms` menyertakan `visibility={enabled,revision}`. Ubah dengan `PUT /admin/terms/visibility` berisi `{enabled,baseRevision}`. API form publik menyertakan `termsEnabled`, `termsRevision`, dan `termsVersionId`; `terms=null` saat OFF. Submit mengirim `termsRevision` dan `accepted` boolean. Server mewajibkan accepted=true hanya saat ON, serta menolak revisi status yang kedaluwarsa (409).
 
-OAuth akun pengirim (Super Admin): `GET /admin/mail/status`, `POST /admin/mail/oauth/:provider/start` (CSRF, provider gmail|outlook), `DELETE /admin/mail/oauth/:provider` (CSRF). Start mengembalikan URL consent dan cookie binding. Callback publik `GET /email/oauth/:provider/callback` memvalidasi state sekali pakai, PKCE/binding serta session Super Admin asli, lalu redirect ke Settings. `email_transport=smtp|gmail|outlook|none` dipilih lewat Settings. Baris privat mail_oauth_* tidak dikembalikan oleh Settings atau dicatat dalam snapshot log.
+Pengiriman email hanya mendukung SMTP. email_transport menerima smtp|none; gmail/outlook ditolak 422. Endpoint /api/admin/mail/* dan /api/email/oauth/* yang lama mengembalikan 410 tanpa URL login, pertukaran token, atau pengiriman provider. GET Settings menyaring semua key mail_oauth_* dan tidak mengembalikan password SMTP.
 
 Jadwal backup menggunakan `backup_jam` (default `00:00`) dan `backup_jam_kedua` (default `12:00`), keduanya `HH:mm` sesuai `zona_waktu`. Penanda slot `backup_last_slot` hanya ditulis setelah arsip terjadwal sukses; backup manual tidak melewatkan jadwal berikutnya.
 
@@ -135,3 +145,17 @@ PUT custom/cell pada kolom number menerima number finite atau string desimal/sci
 Rute baru berada di /admin/notifications, memerlukan login dan mode session aktif. GET recipients, unread, daftar ?box=inbox|sent&unread=0|1&page=1; POST root untuk membuat; POST :id/read, read-all, :id/cancel untuk baca/batalkan. Semua mutasi memerlukan CSRF. Mode/penerima tidak dapat dilewati dengan ID pesan. Payload, hak akses, jadwal dan migrasi dijelaskan di [NOTIFIKASI_ADMIN.md](NOTIFIKASI_ADMIN.md).
 
 Ringkasan tahunan: GET /api/admin/dashboard?year=current|YYYY (all ditolak), mode dari session. Mengembalikan agregat total/today/last7/vendors/failed, daily[30], monthly[12], currencies (total string desimal per mata uang), topVendors/topByValue, compositions, sources, emails, duration dan followups. GET /api/admin/submissions dan /export/:format menerima followup=legality|email, dikombinasikan dengan filter tahun/pencarian/vendor/tanggal/status. Detail definisi: RINGKASAN_ADMIN.md.
+
+Konfigurasi OAuth Google/Outlook dihapus. Startup/restore menghapus key mail_oauth_*; metode yang sudah tidak didukung menjadi none, sedangkan metode dan kredensial SMTP dipertahankan.
+
+Gambar editor: GET /api/admin/images?page=1&size=12 memberikan galeri upload publik mode aktif (nama, URL, tanggal, pagination), tanpa lampiran vendor privat. Mutasi /api/admin/terms/* dan upload admin menerima mode asal opsional; mismatch session mode menghasilkan 409. Draft/version/preview ketentuan menolak img blob/data sementara dengan 422. URL unggahan relatif lama dinormalisasi ke /uploads/; URL gambar luar dan path lain tetap disaring.
+
+Placeholder email: PUT /api/admin/settings memvalidasi email_subjek/email_isi bila dikirim (syntax tidak didukung: 422, tidak menyimpan perubahan). Mendukung {{kode_field}}, {{setting.kode_form}} dan setting dokumen publik lainnya, {{format_number total}}, {{format_date invoice_date 'dd-MM-yyyy'}}. Metadata buku/referensi/total berasal dari master/server, bukan nilai vendor; setting memakai snapshot dokumen. SMTP menerima subject/text hasil render. Isi teks biasa; nilai tidak dievaluasi ulang; subjek dibersihkan dari kontrol/baris baru. Field tidak tersedia menjadi kosong; nomor/tahun buku tanpa metadata menjadi '-'. Setting privat dan konstruksi Handlebars lain ditolak.
+
+POST /api/admin/settings/preview-email: Super Admin + CSRF; body {email_subjek:string(1..200),email_isi:string(0..10000)}; respons {subject,text}. Tidak menyimpan settings/membuat log email/mengirim. Menggunakan data contoh (No. Buku 1, tahun berjalan, PT Contoh Vendor, total IDR 1.110.000,00). Template tidak valid/subjek hasil kosong: 422. POST test-email tetap mengirim pesan uji koneksi tetap, tanpa PDF.
+
+Navigasi halaman admin: /admin/{mode}/ringkasan, /admin/{mode}/notifikasi, /admin/{mode}/data-form, /admin/{mode}/tabel-kustom, /admin/{mode}/ketentuan, /admin/{mode}/form-builder, /admin/{mode}/template, /admin/{mode}/logs-backup adalah rute frontend dengan mode internal|eksternal. Settings tetap /admin/settings dan berlaku global. API tetap di /api/admin/* dengan pemeriksaan login/role/CSRF yang sama. Tautan Settings lama /admin?mail_oauth=... membuka tab Email dengan informasi penghapusan fitur, lalu parameter lama dibersihkan. Callback OAuth tidak lagi berfungsi (410). Panduan parameter tab/filter tersedia di README.
+
+Scope mode per permintaan: client halaman mode mengirim X-ROI-Mode: internal|eksternal. Backend memvalidasi header (nilai lain/duplikat tidak valid: 422), lalu memakai mode tersebut sebagai req.mode untuk endpoint yang memiliki data per mode, tanpa mengubah session. Body mode yang berbeda ditolak 409; upload multipart tetap divalidasi setelah parser. Query mode tidak mengubah scope. Pencarian berdasarkan ID tetap mensyaratkan mode yang sama (404 jika berbeda). Ini memungkinkan dua tab memakai session login yang sama dengan mode berbeda. Kompatibilitas API lama: tanpa header, mode session dipakai; jika belum dipilih, endpoint per mode mengembalikan 409.
+
+Endpoint settings/*, admins/* serta backups/* bersifat global, dapat diakses tanpa memilih mode, dan tetap memerlukan role/CSRF sebagaimana sebelumnya. Endpoint custom/backups tetap per mode. Email tes tanpa mode dicatat dengan mode global dan submissionId null; kedua Email Log menyertakan tes global tersebut, bukan invoice mode lain. /api/admin/mode tetap tersedia untuk default client lama; navigasi baru memakai URL dan tidak mengubah mode session saat berpindah tab/mode. Header mode bukan pemberian hak akses: login dan role wajib, sedangkan kedua mode dapat diakses sesuai kebijakan role aplikasi yang sudah ada.

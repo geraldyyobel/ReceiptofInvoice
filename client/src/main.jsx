@@ -4,6 +4,7 @@ import { api, setTimeZone } from "./api";
 import { PublicApp } from "./public";
 import { AdminApp } from "./admin";
 import "./style.css";
+import "./terms-content.css";
 function App() {
   const [config, setConfig] = useState({
     nama_aplikasi: "Receipt of Invoice · BCU",
@@ -19,7 +20,7 @@ function App() {
   useEffect(() => {
     api("/public/config").then(update).catch(console.error);
   }, []);
-  return location.pathname.startsWith("/admin") ? (
+  return /^\/admin(?:\/|$)/.test(location.pathname) ? (
     <AdminApp
       config={config}
       refreshConfig={() => api("/public/config").then(update)}

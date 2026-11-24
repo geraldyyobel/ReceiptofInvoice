@@ -1,5 +1,9 @@
+import { modeFromPath, globalAdminApi } from "../../shared/admin-routing";
 let csrf;
 export async function api(url, options = {}) {
+  // Capture the originating page before awaiting CSRF or any network operation.
+  const { workspaceMode = modeFromPath(location.pathname), ...fetchOptions } = options;
+  const adminPath = url.startsWith("/admin/") ? url.slice(6).split("?")[0] : null;
   if (!csrf) {
     const r = await fetch("/api/csrf", { credentials: "include" });
     csrf = (await r.json()).token;
@@ -8,10 +12,11 @@ export async function api(url, options = {}) {
     form = body instanceof FormData;
   const r = await fetch("/api" + url, {
     credentials: "include",
-    ...options,
+    ...fetchOptions,
     headers: {
       ...(!form ? { "Content-Type": "application/json" } : {}),
       "X-CSRF-Token": csrf,
+      ...(adminPath && !globalAdminApi(adminPath) && workspaceMode ? { "X-ROI-Mode": workspaceMode } : {}),
       ...options.headers,
     },
     body: body === undefined ? undefined : form ? body : JSON.stringify(body),
@@ -23,9 +28,18 @@ export async function api(url, options = {}) {
     const e = new Error(data.error);
     e.details = data.details;
     e.status = r.status;
+    if (adminPath && r.status === 403 && data.details?.menuAccess)
+      window.dispatchEvent(new Event("roi-menu-access-changed"));
     throw e;
   }
   return options.raw ? r : r.json();
+}
+// Each component's async callbacks retain their own mode across navigation.
+export function modeClient(workspaceMode = modeFromPath(location.pathname)) {
+  return {
+    api: (url, options) => api(url, { ...options, workspaceMode }),
+    download: (url, name, options) => download(url, name, { ...options, workspaceMode }),
+  };
 }
 export async function download(url, name, options = {}) {
   const r = await api(url, { ...options, raw: true }),

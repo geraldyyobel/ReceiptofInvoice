@@ -29,7 +29,7 @@ const env = {
   DATA_DIR: dir,
   SESSION_SECRET: crypto.randomBytes(48).toString("hex"),
   ENCRYPTION_KEY: crypto.randomBytes(32).toString("hex"),
-  ADMIN_EMAIL: "volume@example.test",
+  ADMIN_EMAIL: "volume@bcupt.id",
   ADMIN_PASSWORD: "VolumeUji!2026secure",
   APP_ORIGIN: origin,
   PORT: String(port),

@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { api, download, date } from "./api";
+import { api, download, date, modeClient } from "./api";
 import { Busy, Notice, Pager } from "./ui";
 export function CustomBackups() {
+  const { api, download } = modeClient();
   const [list, setList] = useState(null),
     [page, setPage] = useState(1),
     [selected, setSelected] = useState(""),

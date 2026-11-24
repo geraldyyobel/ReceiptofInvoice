@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { api, download, date, money } from "./api";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { api, download, date, money, modeClient } from "./api";
 import { Notice, Busy, Modal, Pager, BrandMark } from "./ui";
 import { ModeCards } from "./public";
 import { FormBuilder } from "./builder";
@@ -7,47 +7,70 @@ import { CustomTable } from "./custom";
 import { TermsEditor, TemplateEditor, Settings } from "./editors";
 import { Dashboard } from "./dashboard";
 import { Notifications, NotificationBell } from "./notifications";
-const menus = [
-  ["dashboard", "⌂", "Ringkasan"],
-  ["notifications", "🔔", "Notifikasi"],
-  ["data", "▤", "Data Form"],
-  ["custom", "▦", "Tabel Kustom"],
-  ["terms", "≡", "Editor Ketentuan"],
-  ["form", "⑂", "Form Builder"],
-  ["template", "▧", "Template Dokumen"],
-  ["logs", "◷", "Logs & Backup"],
-  ["settings", "⚙", "Settings"],
-];
+import { adminPaths, adminHref, goAdmin, navigateUrl, useLocation, followLink, queryUpdate, modeFromPath, rememberedMode, rememberMode } from "./navigation";
+import { adminMenus, masterReaderRole } from "../../shared/admin-routing";
+import { adminEmailDomain, isBcuAdminEmail } from "../../shared/admin-email";
 export function AdminApp({ config, refreshConfig }) {
+  const route = useLocation();
+  const routeMode = modeFromPath(route.pathname);
+  const relativePath = route.pathname.replace(/^\/admin\/(internal|eksternal)(?=\/|$)/, "/admin").replace(/\/$/, "");
   const [me, setMe] = useState(null),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
-    [page, setPage] = useState(
-      new URLSearchParams(location.search).has("mail_oauth")
-        ? "settings"
-        : "dashboard",
-    ),
-    [nav, setNav] = useState(false),
-    [destination, setDestination] = useState({});
+    [nav, setNav] = useState(false);
+  const visibleMenus = adminMenus.filter(([id]) => me?.admin?.menus?.includes(id));
+  const firstWorkspacePage = visibleMenus.find(([id]) => id !== "settings")?.[0];
+  const firstPage = visibleMenus[0];
+  const page = Object.keys(adminPaths).find((key) => adminPaths[key] === relativePath)
+    || (relativePath === "/admin" ? (route.searchParams.has("mail_oauth") ? "settings" : firstPage?.[0] || "dashboard") : null);
+  const active = visibleMenus.find(([id]) => id === page);
+  const activeMode = routeMode || rememberedMode() || me?.mode || "internal";
+  const requestVersion = useRef(0);
+  function applySession(session) {
+    requestVersion.current++;
+    setMe(session);
+  }
+  const refreshAccess = useCallback(async () => {
+    const version = ++requestVersion.current;
+    const session = await api("/auth/me");
+    if (version === requestVersion.current) setMe(session);
+  }, []);
   useEffect(() => {
-    api("/auth/me")
-      .then(setMe)
+    if (window.location.href !== route.href) return;
+    if (routeMode) rememberMode(routeMode);
+    if (page === "settings") {
+      navigateUrl(adminPaths.settings + route.search, { replace: true });
+    } else if (active && (routeMode || rememberedMode() || me?.mode)) {
+      navigateUrl(adminHref(page, Object.fromEntries(route.searchParams), activeMode), { replace: true });
+    }
+  }, [route.href, page, Boolean(active), me?.mode]);
+  useEffect(() => { setError(""); setNav(false); }, [route.pathname]);
+  useEffect(() => {
+    refreshAccess()
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
-  async function select(mode) {
-    try {
-      await api("/admin/mode", { method: "POST", body: { mode } });
-      setMe({ ...me, mode });
-      setDestination({});
-      setPage("dashboard");
-    } catch (e) {
-      setError(e.message);
-    }
+  }, [refreshAccess]);
+  useEffect(() => {
+    if (!me?.admin) return;
+    const refresh = () => refreshAccess().catch((e) => setError(e.message));
+    refresh();
+    window.addEventListener("focus", refresh);
+    window.addEventListener("roi-menu-access-changed", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("roi-menu-access-changed", refresh);
+    };
+  }, [route.pathname, me?.admin?.id, refreshAccess]);
+  function select(mode) {
+    const usingRequestedPage = !routeMode && active && page !== "settings";
+    const destination = usingRequestedPage ? page : firstWorkspacePage;
+    if (!destination) return;
+    rememberMode(mode);
+    goAdmin(destination, usingRequestedPage ? Object.fromEntries(route.searchParams) : {}, mode);
   }
   if (loading) return <Busy />;
-  if (!me?.admin) return <Login onLogin={setMe} config={config} />;
-  if (!me.mode)
+  if (!me?.admin) return <Login onLogin={applySession} config={config} />;
+  if (!routeMode && active && page !== "settings" && !rememberedMode() && !me.mode)
     return (
       <main className="mode-admin">
         <div className="between">
@@ -58,7 +81,8 @@ export function AdminApp({ config, refreshConfig }) {
           <button
             className="secondary"
             onClick={() =>
-              api("/auth/logout", { method: "POST" }).then(() => setMe(null))
+              api("/auth/logout", { method: "POST" })
+                .then(() => applySession(null)).catch((e) => setError(e.message))
             }
           >
             Keluar
@@ -67,14 +91,14 @@ export function AdminApp({ config, refreshConfig }) {
         <span className="eyebrow">PILIH RUANG KERJA</span>
         <h1>Kelola penyerahan invoice.</h1>
         <p>Ketentuan, form, template, dan data terpisah untuk setiap mode.</p>
-        <ModeCards admin onSelect={select} />
+        <ModeCards onSelect={select} />
         <Notice type="error">{error}</Notice>
       </main>
     );
-  const active = menus.find((m) => m[0] === page),
-    props = {
-      key: me.mode + "-" + page,
-      mode: me.mode,
+  if (active && page !== "settings" && !routeMode) return <Busy />;
+  const props = {
+      key: activeMode + "-" + page,
+      mode: activeMode,
       onError: (e) => setError(e.message || e),
       admin: me.admin,
       config,
@@ -83,8 +107,8 @@ export function AdminApp({ config, refreshConfig }) {
     <div
       className="admin-shell"
       style={{
-        "--primary": config["tema_" + me.mode],
-        "--accent": config["aksen_" + me.mode],
+        "--primary": config["tema_" + activeMode],
+        "--accent": config["aksen_" + activeMode],
       }}
     >
       <aside className={"sidebar " + (nav ? "open" : "")}>
@@ -95,20 +119,17 @@ export function AdminApp({ config, refreshConfig }) {
           </span>
         </a>
         <div className="sidebar-caption">
-          RUANG KERJA · {me.mode.toUpperCase()}
+          RUANG KERJA · {page === "settings" ? "PENGATURAN UMUM" : activeMode.toUpperCase()}
         </div>
         <nav>
-          {menus
-            .filter(
-              (m) => m[0] !== "settings" || me.admin.role === "superadmin",
-            )
-            .map(([id, icon, label]) => (
-              <button
+          {visibleMenus.map(([id, icon, label]) => (
+              <a
                 key={id}
+                href={adminHref(id, {}, activeMode)}
+                aria-current={page === id ? "page" : undefined}
                 className={page === id ? "selected" : ""}
-                onClick={() => {
-                  setDestination({});
-                  setPage(id);
+                onClick={(e) => {
+                  followLink(e);
                   setError("");
                   setNav(false);
                 }}
@@ -116,7 +137,7 @@ export function AdminApp({ config, refreshConfig }) {
                 <span>{icon}</span>
                 {label}
                 {id === "data" && <span className="small-tag">Master</span>}
-              </button>
+              </a>
             ))}
         </nav>
         <div className="sidebar-bottom">
@@ -128,7 +149,7 @@ export function AdminApp({ config, refreshConfig }) {
             <div>
               {me.admin.name}
               <small>
-                {me.admin.role === "superadmin" ? "Super Admin" : "Admin"}
+                {me.admin.roleLabel}
               </small>
             </div>
           </div>
@@ -136,7 +157,7 @@ export function AdminApp({ config, refreshConfig }) {
             className="ghost"
             onClick={() =>
               api("/auth/logout", { method: "POST" })
-                .then(() => setMe(null))
+                .then(() => applySession(null))
                 .catch(props.onError)
             }
           >
@@ -158,36 +179,44 @@ export function AdminApp({ config, refreshConfig }) {
             <b>{active?.[2]}</b>
           </div>
           <div className="inline">
-            <span className="mode-badge">{me.mode}</span>
-            <NotificationBell key={me.mode} onOpen={() => { setPage("notifications"); setError(""); }} />
-            <button
+            <span className="mode-badge">{page === "settings" ? "Global" : activeMode}</span>
+            {routeMode && me.admin.menus.includes("notifications") && <NotificationBell key={activeMode} onOpen={() => { goAdmin("notifications"); setError(""); }} />}
+            {firstWorkspacePage && <button
               className="secondary small"
               onClick={() =>
-                select(me.mode === "internal" ? "eksternal" : "internal")
+                select(activeMode === "internal" ? "eksternal" : "internal")
               }
             >
               ⇄ Pindah mode
-            </button>
+            </button>}
           </div>
         </header>
         <main className="admin-content">
           <div className="page-heading">
             <span className="eyebrow">
-              RECEIPT OF INVOICE / {me.mode.toUpperCase()}
+              RECEIPT OF INVOICE / {page === "settings" ? "PENGATURAN UMUM" : activeMode.toUpperCase()}
             </span>
-            <h1>{active?.[2]}</h1>
+            <h1>{active?.[2] || (page ? "Akses menu dibatasi" : "Halaman tidak ditemukan")}</h1>
           </div>
           <Notice type="error">{error}</Notice>
-          {page === "dashboard" && <Dashboard {...props} navigate={(target, filters = {}) => { setDestination(filters); setPage(target); }} />}
-          {page === "notifications" && <Notifications {...props} />}
-          {page === "data" && <DataForm {...props} initialFilters={destination} />}
-          {page === "custom" && <CustomTable {...props} />}
-          {page === "terms" && <TermsEditor {...props} />}
-          {page === "form" && <FormBuilder {...props} />}
-          {page === "template" && <TemplateEditor {...props} />}
-          {page === "logs" && <Logs {...props} initialTab={destination.tab} />}
-          {page === "settings" && (
-            <Settings {...props} refreshConfig={refreshConfig} />
+          {!page && <Notice>Alamat halaman admin tidak ditemukan. {firstPage && <a href={adminHref(firstPage[0], {}, activeMode)} onClick={followLink}>Buka {firstPage[2]}</a>}</Notice>}
+          {page && !active && (
+            <Notice type="error">
+              {page === "settings" ? "Settings hanya dapat dibuka Super Admin."
+                : visibleMenus.length ? "Anda tidak memiliki akses ke menu ini."
+                  : "Akun Anda belum memiliki akses menu. Hubungi Super Admin."}
+            </Notice>
+          )}
+          {active && page === "dashboard" && <Dashboard {...props} navigate={goAdmin} />}
+          {active && page === "notifications" && <Notifications {...props} />}
+          {active && page === "data" && <DataForm {...props} />}
+          {active && page === "custom" && <CustomTable {...props} />}
+          {active && page === "terms" && <TermsEditor {...props} />}
+          {active && page === "form" && <FormBuilder {...props} />}
+          {active && page === "template" && <TemplateEditor {...props} />}
+          {active && page === "logs" && <Logs {...props} />}
+          {active && page === "settings" && (
+            <Settings {...props} refreshConfig={refreshConfig} refreshAccess={refreshAccess} />
           )}
         </main>
         <footer className="admin-footer">
@@ -201,8 +230,66 @@ export function AdminApp({ config, refreshConfig }) {
 function Login({ onLogin, config }) {
   const [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
+    [method, setMethod] = useState("password"),
+    [challenge, setChallenge] = useState(""),
+    [code, setCode] = useState(""),
+    [seconds, setSeconds] = useState(0),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const otp = method === "otp";
+  const verify = otp && Boolean(challenge);
+
+  useEffect(() => {
+    if (!seconds) return;
+    const timer = setTimeout(() => setSeconds((value) => value - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [seconds]);
+
+  function changeMethod(next) {
+    if (next === method) return;
+    setMethod(next);
+    setChallenge("");
+    setCode("");
+    setPassword("");
+    setError("");
+  }
+
+  async function run(action) {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await action();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function requestOtp() {
+    const response = await api("/auth/otp/request", { method: "POST", body: { email } });
+    setChallenge(response.challenge);
+    setSeconds(response.resendAfter);
+    setCode("");
+  }
+
+  function submit(event) {
+    event.preventDefault();
+    if (!isBcuAdminEmail(email)) {
+      setError(`Gunakan email BCU @${adminEmailDomain} yang terdaftar sebagai admin.`);
+      return;
+    }
+    run(async () => {
+      if (otp && !verify) return requestOtp();
+      const session = await api(verify ? "/auth/otp/verify" : "/auth/login", {
+        method: "POST",
+        body: verify ? { email, challenge, code } : { email, password },
+      });
+      onLogin(session);
+    });
+  }
+
   return (
     <div className="login-screen">
       <section className="login-art">
@@ -224,51 +311,65 @@ function Login({ onLogin, config }) {
         <small>Receipt of Invoice · 2026</small>
       </section>
       <main className="login-panel">
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setBusy(true);
-            setError("");
-            try {
-              onLogin(
-                await api("/auth/login", {
-                  method: "POST",
-                  body: { email, password },
-                }),
-              );
-            } catch (e) {
-              setError(e.message);
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
+        <form onSubmit={submit}>
           <span className="eyebrow">AKSES TERBATAS</span>
           <h1>Masuk ke ruang admin</h1>
-          <p className="muted">Gunakan akun yang diberikan Super Admin BCU.</p>
+          <p className="muted">
+            {otp ? "Masuk dengan email BCU. Akun baru mendapat akses baca Data Form Master setelah verifikasi."
+              : `Gunakan akun terdaftar dengan alamat @${adminEmailDomain}.`}
+          </p>
+          <div className="button-row login-methods" role="group" aria-label="Cara masuk">
+            <button type="button" disabled={busy} aria-pressed={!otp} className={otp ? "secondary" : ""}
+              onClick={() => changeMethod("password")}>Password</button>
+            <button type="button" disabled={busy} aria-pressed={otp} className={otp ? "" : "secondary"}
+              onClick={() => changeMethod("otp")}>OTP email BCU</button>
+          </div>
           <label>
             Email
             <input
               type="email"
               required
               autoComplete="username"
+              placeholder={`nama@${adminEmailDomain}`}
+              readOnly={verify || busy}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
           </label>
-          <label>
+          {!otp && <label>
             Password
             <input
               type="password"
               required
               autoComplete="current-password"
+              readOnly={busy}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
-          </label>
+          </label>}
+          {verify && <>
+            <Notice>Periksa email BCU di atas untuk kode OTP. Kode berlaku 5 menit.</Notice>
+            <label>
+              Kode OTP
+              <input type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}"
+                maxLength={6} required readOnly={busy} value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
+            </label>
+            <div className="button-row">
+              <button type="button" className="ghost small" disabled={busy || seconds > 0}
+                onClick={() => run(requestOtp)}>
+                {seconds ? `Kirim ulang (${seconds} dtk)` : "Kirim ulang kode"}
+              </button>
+              <button type="button" className="ghost small" disabled={busy} onClick={() => {
+                setChallenge("");
+                setCode("");
+                setError("");
+              }}>Ganti email</button>
+            </div>
+          </>}
           <Notice type="error">{error}</Notice>
           <button className="full" disabled={busy}>
-            {busy ? "Memeriksa…" : "Masuk →"}
+            {busy ? "Memproses…" : verify ? "Verifikasi dan masuk" : otp ? "Kirim kode OTP" : "Masuk →"}
           </button>
           <a href="/" className="muted">
             ← Kembali ke form publik
@@ -278,21 +379,15 @@ function Login({ onLogin, config }) {
     </div>
   );
 }
-function DataForm({ onError, initialFilters = {} }) {
+function DataForm({ onError, admin }) {
+  const masterReader = admin.role === masterReaderRole;
+  const { api, download } = modeClient();
+  const route = useLocation();
+  const defaults = { year: "current", q: "", from: "", to: "", vendor: "", status: "", sort: "submittedAt", dir: "desc", page: 1, followup: "" };
+  const filters = Object.fromEntries(Object.entries(defaults).map(([key, value]) => [key, route.searchParams.get(key) ?? value]));
+  filters.page = Math.max(1, Math.min(1000000, Math.floor(Number(filters.page)) || 1));
+  const setFilters = (next, options) => queryUpdate(next, options);
   const [data, setData] = useState(null),
-    [filters, setFilters] = useState({
-      year: "current",
-      q: "",
-      from: "",
-      to: "",
-      vendor: "",
-      status: "",
-      sort: "submittedAt",
-      dir: "desc",
-      page: 1,
-      followup: "",
-      ...initialFilters,
-    }),
     [detail, setDetail] = useState(null),
     [email, setEmail] = useState(""),
     [message, setMessage] = useState("");
@@ -307,12 +402,12 @@ function DataForm({ onError, initialFilters = {} }) {
     return () => { active = false; };
   }, [JSON.stringify(filters)]);
   const f = (k, v) =>
-    setFilters({ ...filters, [k]: v, page: k === "page" ? v : 1 });
+    setFilters({ ...filters, [k]: v, page: k === "page" ? v : 1 }, { replace: ["q", "vendor", "from", "to"].includes(k) });
   return (
     <>
       <div className="between section-intro">
         <p>Jawaban asli vendor. Tahun buku mengikuti tanggal invoice; nomor buku terpisah per mode dan tahun. Data master hanya dapat dibaca.</p>
-        <div className="button-row">
+        {!masterReader && <div className="button-row">
           {["csv", "xlsx"].map((ext) => (
             <button
               className="secondary"
@@ -327,7 +422,7 @@ function DataForm({ onError, initialFilters = {} }) {
               ↓ {ext.toUpperCase()}
             </button>
           ))}
-        </div>
+        </div>}
       </div>
       <div className="filterbar">
         <label>Tahun buku
@@ -467,7 +562,7 @@ function DataForm({ onError, initialFilters = {} }) {
                 <div key={f.code}>
                   <dt>{f.label}</dt>
                   <dd>
-                    {f.type === "file" ? (
+                    {f.type === "file" && !masterReader ? (
                       <button
                         className="secondary small"
                         onClick={() =>
@@ -493,7 +588,7 @@ function DataForm({ onError, initialFilters = {} }) {
               {detail.values.currency} {money(detail.values.total)}
             </b>
           </div>
-          <div className="button-row">
+          {!masterReader && <><div className="button-row">
             {["pdf", "html"].map((ext) => (
               <button
                 key={ext}
@@ -528,16 +623,19 @@ function DataForm({ onError, initialFilters = {} }) {
               onChange={(e) => setEmail(e.target.value)}
             />
             <button className="secondary">Kirim ulang email</button>
-          </form>
+          </form></>}
           <Notice type="success">{message}</Notice>
         </Modal>
       )}
     </>
   );
 }
-function Logs({ onError, admin, initialTab = "activity" }) {
-  const [tab, setTab] = useState(initialTab),
-    [logs, setLogs] = useState(null),
+function Logs({ onError, admin }) {
+  const { api, download } = modeClient();
+  const route = useLocation(), requestedTab = route.searchParams.get("tab");
+  const tab = ["activity", "email", ...(admin.role === "superadmin" ? ["backups"] : [])].includes(requestedTab) ? requestedTab : "activity";
+  const setTab = (value) => queryUpdate({ tab: value });
+  const [logs, setLogs] = useState(null),
     [backups, setBackups] = useState([]),
     [q, setQ] = useState(""),
     [from, setFrom] = useState(""),

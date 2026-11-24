@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { api } from "./api";
+import { api, modeClient } from "./api";
 import { Busy, Notice } from "./ui";
 import { NotificationSummary } from "./notifications";
+import { useLocation, queryUpdate } from "./navigation";
 
 const number = (n) => new Intl.NumberFormat("id-ID").format(n);
 // Keep the server's exact decimal string, including amounts above Number's safe integer range.
@@ -31,8 +32,14 @@ function Composition({ title, data }) {
 }
 const duration = (seconds) => seconds === null ? "—" : seconds < 60 ? `${Math.round(seconds)} detik` : seconds < 3600 ? `${(seconds / 60).toFixed(1).replace(".", ",")} menit` : `${(seconds / 3600).toFixed(1).replace(".", ",")} jam`;
 
-export function Dashboard({ navigate }) {
-  const [year, setYear] = useState("current"), [data, setData] = useState(null), [error, setError] = useState(""), [loading, setLoading] = useState(true);
+export function Dashboard({ navigate, admin }) {
+  const { api, download } = modeClient();
+  const can = (menu) => admin.menus.includes(menu);
+  const canSeeData = can("data");
+  const route = useLocation();
+  const year = /^\d{4}$/.test(route.searchParams.get("year") || "") ? route.searchParams.get("year") : "current";
+  const setYear = (value) => queryUpdate({ year: value });
+  const [data, setData] = useState(null), [error, setError] = useState(""), [loading, setLoading] = useState(true);
   const [trend, setTrend] = useState("daily"), [ranking, setRanking] = useState("count"), [currency, setCurrency] = useState("");
   const [refresh, setRefresh] = useState(0);
   useEffect(() => {
@@ -41,7 +48,7 @@ export function Dashboard({ navigate }) {
     api("/admin/dashboard?year=" + encodeURIComponent(year)).then((d) => { if (active) setData(d); })
       .catch((e) => { if (active) setError(e.message); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [year, refresh]);
+  }, [year, refresh, canSeeData]);
   const d = !loading && !error ? data : null;
   const selectedCurrency = d?.topByValue.find((r) => r.currency === currency) || d?.topByValue[0];
   return <div className="dashboard">
@@ -49,7 +56,7 @@ export function Dashboard({ navigate }) {
       <option value="current">Tahun berjalan ({data?.currentYear || "…"})</option>
       {data?.years.map((y) => <option key={y.year} value={y.year}>{y.year}</option>)}
     </select></label><button className="secondary small" onClick={() => setRefresh((n) => n + 1)} disabled={loading}>Perbarui ringkasan</button></div>
-    <NotificationSummary onOpen={() => navigate("notifications")} />
+    {can("notifications") && <NotificationSummary onOpen={() => navigate("notifications")} />}
     <Notice type="error">{error}</Notice>
     {loading && <Busy />}
     {d && <>
@@ -66,7 +73,7 @@ export function Dashboard({ navigate }) {
           {!d.currencies.length && <p className="empty">Belum ada tagihan.</p>}
           <dl className="currency-list">{d.currencies.map((c) => <div key={c.currency}><dt>{c.currency}</dt><dd>{money(c.total)}</dd></div>)}</dl>
         </section>
-        <section className="paper"><div className="between"><h2>Status email</h2><button className="secondary small" onClick={() => navigate("logs", { tab: "email" })}>Buka Email Log →</button></div>
+        <section className="paper"><div className="between"><h2>Status email</h2>{can("logs") && <button className="secondary small" onClick={() => navigate("logs", { tab: "email" })}>Buka Email Log →</button>}</div>
           <div className="email-totals"><span>Berhasil<strong>{number(d.emails.sent)}</strong></span><span>Gagal<strong>{number(d.emails.failed)}</strong></span></div>
           <p className="muted">Jumlah percobaan kirim untuk invoice buku {d.year}, termasuk kirim ulang. Email tes tanpa invoice tidak dihitung. Email Log menampilkan riwayat lengkap mode aktif.</p>
         </section>
@@ -84,11 +91,11 @@ export function Dashboard({ navigate }) {
         </section>
         <section className="paper"><h2>Waktu pengisian rata-rata</h2><strong className="duration-value">{duration(d.duration.averageSeconds)}</strong><p>{number(d.duration.valid)} penyerahan dengan waktu valid.</p><p className="muted">Dihitung dari mulai hingga submit, termasuk waktu jeda atau draft. {d.duration.excluded > 0 && `${number(d.duration.excluded)} waktu tidak valid dikecualikan.`}</p></section>
       </div>
-      <section className="paper"><h2>Perlu tindak lanjut</h2><div className="dashboard-grid">
+      {canSeeData && <section className="paper"><h2>Perlu tindak lanjut</h2><div className="dashboard-grid">
         {[["legality", "Legalitas belum terkirim"], ["email", "Pengiriman terakhir gagal"]].map(([kind, label]) => <div key={kind} className="followup-group"><div className="between"><h3>{label} ({number(d.followups[kind].count)})</h3><button className="secondary small" onClick={() => navigate("data", { year: String(d.year), followup: kind })}>Lihat semua →</button></div>
           {!d.followups[kind].rows.length ? <p className="muted">Tidak ada tindak lanjut.</p> : <ul className="followup-list">{d.followups[kind].rows.map((r) => <li key={r.id}><span>{r.vendor}</span><button className="text-button" onClick={() => navigate("data", { year: String(d.year), followup: kind, q: r.reference })}>{r.reference} →</button></li>)}</ul>}
         </div>)}
-      </div><p className="muted">Legalitas: jawaban “Belum”. Email: status percobaan terakhir per invoice; berhasil dikirim ulang akan keluar dari daftar.</p></section>
+      </div><p className="muted">Legalitas: jawaban “Belum”. Email: status percobaan terakhir per invoice; berhasil dikirim ulang akan keluar dari daftar.</p></section>}
     </>}
   </div>;
 }

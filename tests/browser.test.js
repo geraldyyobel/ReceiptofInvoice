@@ -12,19 +12,22 @@ test("browser desktop/mobile: form vendor, admin, TinyMCE dan navigasi", async (
   await new Promise((r) => server.once("listening", r));
   const browser = await chromium.launch({ headless: true });
   const annualIds = [];
+  let failurePage;
   try {
     const page = await browser.newPage({
         viewport: { width: 1440, height: 1000 },
       }),
       errors = [];
+    failurePage = page;
     page.on("pageerror", (e) => errors.push(e.message));
     await page.goto("http://127.0.0.1:3199");
-    await page.getByRole("heading", { name: /Penyerahan invoice/ }).waitFor();
+    await page.getByRole("heading", { name: "Cari Receipt of Invoice" }).waitFor();
+    assert.equal(await page.locator('a[href^="/admin"]').count(), 0);
     await page.screenshot({
       path: "test-results/public-desktop.png",
       fullPage: true,
     });
-    await page.getByRole("link", { name: /VENDOR & MITRA/ }).click();
+    await page.getByRole("link", { name: "Form Eksternal" }).click();
     await page
       .getByRole("checkbox", {
         name: "Saya telah membaca dan memahami ketentuan",
@@ -89,6 +92,27 @@ test("browser desktop/mobile: form vendor, admin, TinyMCE dan navigasi", async (
     await page.getByRole("button", { name: "Unduh PDF" }).click();
     const file = await downloadEvent;
     assert.match(file.suggestedFilename(), /\.pdf$/);
+    const reference = await page.locator(".reference").innerText();
+    const receipt = await db.submission.findUnique({
+      where: { reference },
+      select: { bookNumber: true, bookYear: true },
+    });
+    await page.goto("http://127.0.0.1:3199/");
+    await page.getByLabel("Nomor referensi", { exact: true }).fill(reference.toLowerCase());
+    await page.getByRole("button", { name: "Cari dokumen" }).click();
+    await page.getByRole("heading", { name: "Dokumen ditemukan" }).waitFor();
+    assert.equal(await page.locator(".receipt-metadata dd").first().innerText(), reference);
+    await page.getByLabel("Cari berdasarkan").selectOption("book");
+    assert.equal(await page.getByRole("heading", { name: "Dokumen ditemukan" }).count(), 0);
+    await page.getByLabel("Nomor buku", { exact: true }).fill(String(receipt.bookNumber));
+    await page.getByLabel("Tahun buku").fill(String(receipt.bookYear));
+    await page.getByLabel("Mode", { exact: true }).selectOption("eksternal");
+    await page.getByRole("button", { name: "Cari dokumen" }).click();
+    await page.getByRole("heading", { name: "Dokumen ditemukan" }).waitFor();
+    const htmlEvent = page.waitForEvent("download");
+    await page.getByRole("button", { name: "HTML siap cetak" }).click();
+    assert.equal((await htmlEvent).suggestedFilename(), reference + ".html");
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto("http://127.0.0.1:3199/admin");
     await page
@@ -108,7 +132,7 @@ test("browser desktop/mobile: form vendor, admin, TinyMCE dan navigasi", async (
       fullPage: true,
     });
     await page
-      .getByRole("button", { name: "Editor Ketentuan", exact: false })
+      .getByRole("link", { name: "Editor Ketentuan", exact: false })
       .click();
     await page.locator(".tox-tinymce").waitFor({ timeout: 20000 });
     await page.frameLocator(".tox-edit-area iframe").locator("body").waitFor();
@@ -123,7 +147,7 @@ test("browser desktop/mobile: form vendor, admin, TinyMCE dan navigasi", async (
       "Logs & Backup",
       "Settings",
     ]) {
-      await page.locator("nav").getByRole("button", { name: label }).click();
+      await page.locator("nav").getByRole("link", { name: label }).click();
       await page
         .getByRole("heading", { name: label, exact: true })
         .first()
@@ -131,7 +155,7 @@ test("browser desktop/mobile: form vendor, admin, TinyMCE dan navigasi", async (
     }
     await page
       .locator("nav")
-      .getByRole("button", { name: "Tabel Kustom" })
+      .getByRole("link", { name: "Tabel Kustom" })
       .click();
     await page.locator(".custom-advanced").waitFor();
     const sync = page.getByRole("button", {
@@ -275,8 +299,8 @@ test("browser desktop/mobile: form vendor, admin, TinyMCE dan navigasi", async (
     await db.customCell.createMany({ data: annualRows.map((r) => ({
       mode: "eksternal", rowId: r.id, columnId: vendorColumn.id, value: "PT Uji Buku 2088-" + String(r.bookNumber).padStart(2, "0"),
     })) });
-    await page.locator("nav").getByRole("button", { name: "Ringkasan" }).click();
-    await page.locator("nav").getByRole("button", { name: "Tabel Kustom" }).click();
+    await page.locator("nav").getByRole("link", { name: "Ringkasan" }).click();
+    await page.locator("nav").getByRole("link", { name: "Tabel Kustom" }).click();
     await page.getByLabel("Tahun buku tabel kustom").selectOption("2088");
     await page.locator('tr[data-book-number="1"][data-book-year="2088"]').waitFor();
     assert.equal(await page.locator(".custom-table tbody tr[data-book-number]").count(), 50);
@@ -308,7 +332,7 @@ test("browser desktop/mobile: form vendor, admin, TinyMCE dan navigasi", async (
     assert.deepEqual(await page.locator(".book-year-heading").allTextContents(), ["Pembukuan 2088", "Pembukuan 2026"]);
     await page
       .locator("nav")
-      .getByRole("button", { name: "Settings", exact: false })
+      .getByRole("link", { name: "Settings", exact: false })
       .click();
     await page
       .locator(".settings-nav")
@@ -328,24 +352,20 @@ test("browser desktop/mobile: form vendor, admin, TinyMCE dan navigasi", async (
       .locator(".settings-nav")
       .getByRole("button", { name: "Email / SMTP", exact: true })
       .click();
-    await page
-      .getByRole("button", { name: "Login Gmail", exact: true })
-      .waitFor();
-    await page
-      .getByRole("button", { name: "Login Outlook", exact: true })
-      .waitFor();
+    assert.equal(await page.getByRole("button", { name: "Login Gmail", exact: true }).count(), 0);
+    assert.equal(await page.getByRole("button", { name: "Login Outlook", exact: true }).count(), 0);
     assert.equal(
       await page.getByLabel("Metode pengiriman email").inputValue(),
       "smtp",
     );
     await page.getByLabel("Host SMTP", { exact: true }).waitFor();
     await page.screenshot({
-      path: "test-results/email-oauth-settings.png",
+      path: "test-results/email-smtp-settings.png",
       fullPage: true,
     });
     await page
       .locator("nav")
-      .getByRole("button", { name: "Editor Ketentuan" })
+      .getByRole("link", { name: "Editor Ketentuan" })
       .click();
     const toggle = page.getByRole("switch", { name: "Tampilkan ketentuan" });
     await toggle.waitFor();
@@ -363,7 +383,7 @@ test("browser desktop/mobile: form vendor, admin, TinyMCE dan navigasi", async (
       .waitFor();
     const visitor = await browser.newPage();
     await visitor.goto("http://127.0.0.1:3199/");
-    await visitor.getByRole("link", { name: /VENDOR & MITRA/ }).click();
+    await visitor.getByRole("link", { name: "Form Eksternal" }).click();
     await visitor.locator("#field-email_anda").waitFor();
     assert.equal(
       await visitor
@@ -386,7 +406,7 @@ test("browser desktop/mobile: form vendor, admin, TinyMCE dan navigasi", async (
       .getByRole("switch", { name: "Tampilkan ketentuan", checked: true })
       .waitFor();
     await visitor.goto("http://127.0.0.1:3199/");
-    await visitor.getByRole("link", { name: /VENDOR & MITRA/ }).click();
+    await visitor.getByRole("link", { name: "Form Eksternal" }).click();
     await visitor
       .getByRole("checkbox", {
         name: "Saya telah membaca dan memahami ketentuan",
@@ -395,15 +415,36 @@ test("browser desktop/mobile: form vendor, admin, TinyMCE dan navigasi", async (
     await visitor.close();
     const direct = await browser.newPage();
     await direct.goto("http://127.0.0.1:3199/");
+    await direct.getByLabel("Nomor referensi", { exact: true }).fill(reference);
+    await direct.getByRole("button", { name: "Cari dokumen" }).click();
+    await direct.getByLabel("Email saat penyerahan").waitFor();
+    assert.equal(await direct.getByRole("button", { name: "Unduh PDF" }).count(), 0);
+    assert.equal(await direct.locator(".notice.error").count(), 0);
+    await direct.getByLabel("Nomor referensi", { exact: true }).fill("ROI-TIDAK-ADA");
+    await direct.getByRole("button", { name: "Cari dokumen" }).click();
+    await direct.getByRole("alert").getByText("Dokumen tidak ditemukan. Periksa kembali nomor referensi Anda.", { exact: true }).waitFor();
+    assert.equal(await direct.getByLabel("Email saat penyerahan").count(), 0);
+    await direct.getByLabel("Cari berdasarkan", { exact: true }).selectOption("book");
+    assert.equal(await direct.locator(".notice.error").count(), 0);
+    await direct.getByLabel("Nomor buku", { exact: true }).fill("2147483647");
+    await direct.getByLabel("Tahun buku", { exact: true }).fill("2026");
+    await direct.getByLabel("Mode", { exact: true }).selectOption("eksternal");
+    await direct.getByRole("button", { name: "Cari dokumen" }).click();
+    await direct.getByRole("alert").getByText("Dokumen tidak ditemukan. Periksa kembali nomor buku, tahun buku, dan mode yang dipilih.", { exact: true }).waitFor();
+    await direct.getByLabel("Nomor buku", { exact: true }).fill(String(receipt.bookNumber));
+    await direct.getByLabel("Tahun buku", { exact: true }).fill(String(receipt.bookYear));
+    await direct.getByRole("button", { name: "Cari dokumen" }).click();
+    await direct.getByLabel("Email saat penyerahan").waitFor();
+    assert.equal(await direct.locator(".notice.error").count(), 0);
     assert.equal(
       await direct
-        .getByRole("link", { name: /LINGKUNGAN BCU/ })
+        .getByRole("link", { name: "Form Internal" })
         .getAttribute("href"),
       "/internal",
     );
     assert.equal(
       await direct
-        .getByRole("link", { name: /VENDOR & MITRA/ })
+        .getByRole("link", { name: "Form Eksternal" })
         .getAttribute("href"),
       "/eksternal",
     );
@@ -430,8 +471,8 @@ test("browser desktop/mobile: form vendor, admin, TinyMCE dan navigasi", async (
         name: "Saya telah membaca dan memahami ketentuan",
       })
       .waitFor();
-    await direct.locator("a").filter({ hasText: "Pilih jenis" }).click();
-    await direct.getByRole("heading", { name: /Penyerahan invoice/ }).waitFor();
+    await direct.getByRole("link", { name: /Halaman utama/ }).click();
+    await direct.getByRole("heading", { name: "Cari Receipt of Invoice" }).waitFor();
     await direct.evaluate(() => {
       sessionStorage.removeItem("roi-success-eksternal");
       sessionStorage.setItem(
@@ -451,6 +492,9 @@ test("browser desktop/mobile: form vendor, admin, TinyMCE dan navigasi", async (
     );
     await direct.close();
     assert.deepEqual(errors, []);
+  } catch (error) {
+    if (failurePage) console.error("Browser state:", await failurePage.locator(".notice.error").allTextContents());
+    throw error;
   } finally {
     await browser.close();
     await closeBrowser();

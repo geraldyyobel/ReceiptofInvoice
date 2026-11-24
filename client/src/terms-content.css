@@ -1,0 +1,25 @@
+/* Shared by TinyMCE, the admin preview and the public terms page. */
+.rich, body.roi-terms-content {
+  font-family: Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+  color: #24352d;
+  overflow-wrap: anywhere;
+  text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+body.roi-terms-content { box-sizing: border-box; max-width: 850px; margin: 24px auto; padding: 26px; }
+.rich p, body.roi-terms-content p { line-height: inherit; margin: 0 0 1em; }
+.rich h1, body.roi-terms-content h1 { font-size: 23px; }
+.rich h2, body.roi-terms-content h2 { font-size: 20px; }
+.rich h3, body.roi-terms-content h3 { font-size: 17px; }
+.rich h4, body.roi-terms-content h4 { font-size: 15px; }
+.rich h5, body.roi-terms-content h5 { font-size: 14px; }
+.rich h6, body.roi-terms-content h6 { font-size: 13px; }
+.rich :is(h1,h2,h3,h4,h5,h6), body.roi-terms-content :is(h1,h2,h3,h4,h5,h6) {
+  font-family: inherit; font-weight: 700; line-height: 1.5; letter-spacing: 0; margin: 1.3em 0 .6em;
+}
+.rich li, body.roi-terms-content li { margin: 9px 0; }
+.rich img, body.roi-terms-content img { max-width: 100%; height: auto; }
+.rich table, body.roi-terms-content table { border-collapse: collapse; max-width: 100%; font-size: inherit; }
+.rich td, .rich th, body.roi-terms-content td, body.roi-terms-content th { border: 1px solid #ccc; padding: 8px; }

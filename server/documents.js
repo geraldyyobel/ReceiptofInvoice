@@ -1,12 +1,11 @@
 import { chromium } from "playwright";
-import nodemailer from "nodemailer";
-import { sendConnectedMail } from "./mail-oauth.js";
+import { smtpTransport } from "./smtp.js";
+import { emailContent } from "./email-template.js";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   db,
   settings,
-  decrypt,
   renderHtml,
   uploadDir,
   fail,
@@ -87,36 +86,7 @@ export async function sendMail({ recipient, sub, req, transport }) {
   let status = "terkirim",
     error = null;
   try {
-    const method = s.email_transport || "smtp";
-    const host = s.smtp_host || process.env.SMTP_HOST;
-    if (method === "smtp" && !host && !transport)
-      throw Error("SMTP belum dikonfigurasi");
-    const mail =
-      transport ||
-      (method === "smtp"
-        ? nodemailer.createTransport({
-            host,
-            port: Number(
-              s.smtp_host ? s.smtp_port : process.env.SMTP_PORT || 587,
-            ),
-            secure: s.smtp_host
-              ? !!s.smtp_secure
-              : process.env.SMTP_SECURE === "true",
-            auth:
-              s.smtp_user || process.env.SMTP_USER
-                ? {
-                    user: s.smtp_user || process.env.SMTP_USER,
-                    pass: s.smtp_password
-                      ? decrypt(
-                          Buffer.from(s.smtp_password, "base64"),
-                        ).toString()
-                      : process.env.SMTP_PASSWORD,
-                  }
-                : undefined,
-            connectionTimeout: 15000,
-            socketTimeout: 30000,
-          })
-        : null);
+    const mail = smtpTransport(s, transport);
     const attachments = sub
       ? [
           {
@@ -129,26 +99,20 @@ export async function sendMail({ recipient, sub, req, transport }) {
     const message = {
       from: s.email_pengirim,
       to: recipient,
-      subject: sub ? s.email_subjek : "Tes email ROI BCU",
-      text: sub
-        ? s.email_isi
-        : "Konfigurasi pengiriman email ROI BCU berhasil.",
+      ...(sub ? emailContent(s, sub) : {
+        subject: "Tes email ROI BCU",
+        text: "Konfigurasi pengiriman email ROI BCU berhasil.",
+      }),
       attachments,
     };
-    if (mail) await mail.sendMail(message);
-    else if (["gmail", "outlook"].includes(method))
-      await sendConnectedMail(method, message);
-    else
-      throw Error(
-        "Pengiriman email belum diaktifkan. Pilih metode di Settings.",
-      );
+    await mail.sendMail(message);
   } catch (e) {
     status = "gagal";
     error = String(e.message).slice(0, 1000);
   }
   await db.emailLog.create({
     data: {
-      mode: sub?.mode || req.mode,
+      mode: sub?.mode || req.mode || "global",
       submissionId: sub?.id,
       recipient,
       status,
@@ -160,7 +124,7 @@ export async function sendMail({ recipient, sub, req, transport }) {
     "email." + status,
     null,
     { recipient, submissionId: sub?.id || null },
-    sub?.mode || req.mode,
+    sub?.mode || req.mode || "global",
   );
   if (error)
     throw fail(

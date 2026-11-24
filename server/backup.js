@@ -1,3 +1,6 @@
+import { removeDeprecatedMailSettings } from "./mail-settings.js";
+import { clearAdminOtp } from "./admin-otp.js";
+import { isBcuAdminEmail } from "../shared/admin-email.js";
 import path from "node:path";
 import {
   mkdir,
@@ -191,6 +194,9 @@ export async function restoreBackup(id, req) {
       tables.some((t) => !Array.isArray(manifest.tables?.[t]))
     )
       throw fail("Format backup tidak valid");
+    if (!manifest.tables.admin.some((admin) =>
+      admin?.active && admin.role === "superadmin" && isBcuAdminEmail(admin.email),
+    )) throw fail("Backup harus memuat Super Admin BCU aktif agar akses admin tetap tersedia.", 422);
     // Validate every entry and unpack only names in the signed/encrypted database manifest.
     await mkdir(staging, { recursive: true });
     for (const u of manifest.tables.upload) {
@@ -225,6 +231,7 @@ export async function restoreBackup(id, req) {
                 data: manifest.tables[table].slice(i, i + 200),
               });
           }
+          await removeDeprecatedMailSettings(tx, req);
           await backfillBooks(tx);
           await audit(
             req,
@@ -242,6 +249,7 @@ export async function restoreBackup(id, req) {
       await rename(old, uploadDir);
       throw e;
     }
+    clearAdminOtp();
     await rm(old, { recursive: true, force: true });
     return {
       message:

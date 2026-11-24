@@ -24,7 +24,7 @@ const decimal = (n) => `${n < 0n ? "-" : ""}${(n < 0n ? -n : n) / 100n}.${String
 const currencyKey = (v) => text(v).toUpperCase() || "Tidak diisi";
 const amount = (v) => minor(v.amount_nett) + minor(v.vat);
 
-export async function dashboard(mode, requestedYear, now = new Date()) {
+export async function dashboard(mode, requestedYear, now = new Date(), { includeFollowupRows = true } = {}) {
   const s = await settings(), zone = s.zona_waktu || "Asia/Jakarta";
   const todayKey = inTimezone(now, zone).slice(0, 10), currentYear = Number(todayKey.slice(0, 4));
   const dayFormatter = new Intl.DateTimeFormat("sv-SE", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" });
@@ -43,7 +43,7 @@ export async function dashboard(mode, requestedYear, now = new Date()) {
     // Bounded memory; never send individual answers or the full year's rows to the browser.
     const rows = await db.submission.findMany({ where: { mode, bookYear: year }, take: 500,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}), orderBy: { id: "asc" },
-      select: { id: true, reference: true, vendor: true, values: true, submittedAt: true, startedAt: true } });
+      select: { id: true, reference: true, vendor: true, values: true, submittedAt: true, startedAt: true, documentSettings: true } });
     if (!rows.length) break;
     const emails = await db.emailLog.findMany({ where: { mode, submissionId: { in: rows.map((r) => r.id) } },
       select: { submissionId: true, status: true }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
@@ -60,7 +60,9 @@ export async function dashboard(mode, requestedYear, now = new Date()) {
       const month = validDate(v.invoice_date) ? Number(v.invoice_date.slice(5, 7)) : Number(day.slice(5, 7));
       if (month >= 1 && month <= 12) monthly[month - 1].count++;
       const ms = +r.submittedAt - +r.startedAt;
-      if (Number.isFinite(ms) && ms >= 0) { durationSum += ms; durationCount++; }
+      const imported = r.documentSettings?.historicalImport;
+      const originalTimes = !imported || (imported.startedAtFromSource && imported.submittedAtFromSource);
+      if (originalTimes && Number.isFinite(ms) && ms >= 0) { durationSum += ms; durationCount++; }
       const vendorName = text(r.vendor) || text(v.received_from) || "Tidak diisi";
       const vendorKey = vendorName.toLocaleLowerCase("id-ID");
       if (!vendors.has(vendorKey)) vendors.set(vendorKey, { name: vendorName, count: 0, currencies: new Map(), counts: new Map() });
@@ -79,8 +81,8 @@ export async function dashboard(mode, requestedYear, now = new Date()) {
       sources.get(sourceKey).count++;
       const item = { id: r.id, reference: r.reference, vendor: vendorName, submittedAt: r.submittedAt };
       const pushLatest = (list) => { list.push(item); list.sort((a, b) => +b.submittedAt - +a.submittedAt || a.id.localeCompare(b.id)); if (list.length > 5) list.pop(); };
-      if (needsLegality(v)) { legalityCount++; pushLatest(legality); }
-      if (latest.get(r.id) === "gagal") { failedCount++; pushLatest(failedEmails); }
+      if (needsLegality(v)) { legalityCount++; if (includeFollowupRows) pushLatest(legality); }
+      if (latest.get(r.id) === "gagal") { failedCount++; if (includeFollowupRows) pushLatest(failedEmails); }
     }
     cursor = rows.at(-1).id;
     if (rows.length < 500) break;

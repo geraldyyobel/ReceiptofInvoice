@@ -29,7 +29,10 @@ for (const args of [
     "tests/automation.test.js",
     "tests/integration.test.js",
     "tests/templates.test.js",
-    "tests/mail-oauth.test.js",
+    "tests/email-placeholders.test.js",
+    "tests/admin-routes.test.js",
+    "tests/mode-routing.test.js",
+    "tests/smtp-only.test.js",
     "tests/browser.test.js",
     "tests/public-storage.test.js",
     "tests/custom-query.test.js",
@@ -38,6 +41,10 @@ for (const args of [
     "tests/dashboard.test.js",
     "tests/ui-races.test.js",
     "tests/auth-races.test.js",
+    "tests/admin-otp.test.js",
+    "tests/terms-font.test.js",
+    "tests/terms-images.test.js",
+    "tests/terms-rollback.test.js",
   ],
 ]) {
   const r = spawnSync(process.execPath, args, {

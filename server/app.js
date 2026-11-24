@@ -1,17 +1,10 @@
 import { registerNotifications } from "./notifications.js";
+import { adminModes, globalAdminApi, masterReaderRole } from "../shared/admin-routing.js";
+import { validateEmailTemplate } from "../shared/email-placeholders.js";
+import { previewEmail } from "./email-template.js";
 import { dashboard, followupSelection } from "./dashboard.js";
 import express from "express";
-import {
-  beginMailConnection,
-  claimMailFlow,
-  completeMailConnection,
-  disconnectMail,
-  mailConnectionStatus,
-  mailOrigin,
-  oauthCookie,
-  oauthCookieOptions,
-  safeMailSettings,
-} from "./mail-oauth.js";
+import { safeMailSettings, emailTransport } from "./mail-settings.js";
 import { termsVisibility, visibilityKey, checkTermsConsent } from "./terms.js";
 import { fieldsForTerms } from "../shared/terms.js";
 import { appendMasterRows, schemaKey } from "./custom-sync.js";
@@ -56,6 +49,10 @@ import {
 } from "../shared/engine.js";
 import { assumptions } from "../prisma/initial.js";
 import { documentFor, pdfBuffer, sendMail } from "./documents.js";
+import { registerReceiptSearch } from "./receipt-search.js";
+import { clearMenuOverrides, enforceAdminMenu, menuSettingPrefix, registerMenuAccessSettings, resolveAdminAccess, validateAdminRole } from "./admin-menu-access.js";
+import { bcuAdminEmail, clearAdminOtp, registerAdminOtp } from "./admin-otp.js";
+import { isBcuAdminEmail, normalizeAdminEmail } from "../shared/admin-email.js";
 import {
   maintenance,
   createBackup,
@@ -132,7 +129,7 @@ app.use(async (req, res, next) => {
         const admin = await db.admin.findUnique({
           where: { id: session.adminId },
         });
-        if (admin?.active) {
+        if (admin?.active && isBcuAdminEmail(admin.email)) {
           req.session = session;
           req.admin = admin;
           req.mode = session.mode;
@@ -184,11 +181,28 @@ app.get("/api/public/config", async (req, res) => {
     tinyLicense: process.env.TINY_LICENSE_KEY || "gpl",
   });
 });
+async function finishAdminLogin(req, res, admin, method) {
+  if (req.session) await db.session.deleteMany({ where: { id: req.session.id } });
+  const s = await settings();
+  const token = random();
+  const expiresAt = new Date(Date.now() + Number(s.session_hours) * 3600000);
+  await db.session.create({
+    data: { id: hash(token), adminId: admin.id, csrf: random(), expiresAt },
+  });
+  req.admin = admin;
+  await audit(req, "auth.login", null, { method }, null);
+  const access = await resolveAdminAccess(admin);
+  res.cookie("roi_session", token, { ...cookieOptions, expires: expiresAt }).json({
+    admin: { id: admin.id, name: admin.name, email: admin.email, role: admin.role, ...access },
+    mode: null,
+  });
+}
+
 app.post("/api/auth/login", limiter("login_limit", 15, 5), async (req, res) => {
-  const email = String(req.body.email || "")
-      .toLowerCase()
-      .trim(),
-    password = String(req.body.password || "");
+  const email = normalizeAdminEmail(req.body?.email);
+  const password = String(req.body?.password || "");
+  if (!isBcuAdminEmail(email))
+    throw fail("Gunakan email BCU @bcupt.id yang terdaftar sebagai admin.", 401);
   if (Buffer.byteLength(password, "utf8") > 72)
     throw fail(
       "Password maksimal 72 byte UTF-8. Jika password lama lebih panjang, minta Super Admin mengaturnya ulang.",
@@ -204,23 +218,10 @@ app.post("/api/auth/login", limiter("login_limit", 15, 5), async (req, res) => {
     await audit(req, "auth.login_failed", null, { email }, null);
     throw fail("Email atau password salah", 401);
   }
-  if (req.session) await db.session.deleteMany({ where: { id: req.session.id } });
-  const s = await settings(),
-    token = random(),
-    expiresAt = new Date(Date.now() + Number(s.session_hours) * 3600000);
-  await db.session.create({
-    data: { id: hash(token), adminId: admin.id, csrf: random(), expiresAt },
-  });
-  req.admin = admin;
-  await audit(req, "auth.login", null, null, null);
-  res
-    .cookie("roi_session", token, { ...cookieOptions, expires: expiresAt })
-    .json({
-      admin: { id: admin.id, name: admin.name, email, role: admin.role },
-      mode: null,
-    });
+  await finishAdminLogin(req, res, admin, "password");
 });
-app.get("/api/auth/me", (req, res) =>
+registerAdminOtp(app, limiter, finishAdminLogin);
+app.get("/api/auth/me", async (req, res) =>
   res.json({
     admin: req.admin
       ? {
@@ -228,6 +229,7 @@ app.get("/api/auth/me", (req, res) =>
           name: req.admin.name,
           email: req.admin.email,
           role: req.admin.role,
+          ...await resolveAdminAccess(req.admin),
         }
       : null,
     mode: req.mode || null,
@@ -250,40 +252,23 @@ const mode = (req, res, next) =>
   ["internal", "eksternal"].includes(req.mode)
     ? next()
     : next(fail("Pilih mode terlebih dahulu", 409));
-// The provider returns via a cross-site top-level GET. A separate Lax cookie
-// binds this callback; the original Super Admin session is checked in the DB.
-app.get(
-  "/api/email/oauth/:provider/callback",
-  rateLimit({ windowMs: 900000, limit: 30, legacyHeaders: false }),
-  async (req, res) => {
-    const provider = z.enum(["gmail", "outlook"]).parse(req.params.provider);
-    let outcome = "error";
-    try {
-      const flow = await claimMailFlow(
-        provider,
-        req.query.state,
-        req.signedCookies[oauthCookie],
-      );
-      req.admin = flow.admin;
-      if (req.query.error) {
-        outcome = "denied";
-        throw fail("Login email dibatalkan.", 400);
-      }
-      await completeMailConnection(flow, req.query.code, req);
-      outcome = "success";
-    } catch {
-      await audit(req, "mail.oauth.failed", null, { provider, outcome }, null);
-    }
-    res.clearCookie(oauthCookie, {
-      path: oauthCookieOptions.path,
-      httpOnly: true,
-      sameSite: "lax",
-      secure: oauthCookieOptions.secure,
-    });
-    res.redirect(mailOrigin() + "/admin?mail_oauth=" + outcome);
-  },
-);
+app.use("/api/email/oauth", (req, res) => {
+  res.clearCookie("roi_mail_oauth", { path: "/api/email/oauth", httpOnly: true, sameSite: "lax", secure: production });
+  res.status(410).json({ error: "Fitur login Google/Outlook telah dihapus. Gunakan SMTP di Settings." });
+});
 app.use("/api/admin", admin);
+app.use("/api/admin/mail", (req, res) => res.status(410).json({ error: "Fitur login Google/Outlook telah dihapus. Gunakan SMTP di Settings." }));
+app.use("/api/admin", enforceAdminMenu);
+app.use("/api/admin", (req, res, next) => {
+  const requested = req.headers["x-roi-mode"];
+  if (requested !== undefined && !adminModes.includes(requested))
+    return next(fail("Mode halaman tidak valid. Gunakan internal atau eksternal.", 422));
+  if (requested && !globalAdminApi(req.path)) req.mode = requested;
+  if (req.path !== "/mode" && !globalAdminApi(req.path) &&
+      req.body?.mode !== undefined && req.body.mode !== req.mode)
+    return next(fail("Mode permintaan berbeda dengan halaman asal. Muat ulang halaman.", 409));
+  next();
+});
 app.post("/api/admin/mode", async (req, res) => {
   const m = z.enum(["internal", "eksternal"]).parse(req.body.mode);
   await db.session.update({ where: { id: req.session.id }, data: { mode: m } });
@@ -312,6 +297,7 @@ app.get("/api/public/:mode/form", async (req, res) => {
     mode,
   });
 });
+registerReceiptSearch(app, limiter);
 app.post(
   "/api/public/:mode/submit",
   limiter("public_limit", 60, 30),
@@ -451,9 +437,14 @@ app.post(
       },
       { timeout: 20000 },
     );
-    res
-      .status(201)
-      .json({ id: sub.id, reference: sub.reference, token, email: sub.email });
+    res.status(201).json({
+      id: sub.id,
+      reference: sub.reference,
+      bookYear: sub.bookYear,
+      bookNumber: sub.bookNumber,
+      token,
+      email: sub.email,
+    });
   },
 );
 async function authorizedSubmission(req) {
@@ -520,7 +511,9 @@ function detectedMime(b) {
     return ["application/pdf", "pdf"];
   return [];
 }
-async function saveUpload(req, res, isPublic) {
+async function saveUpload(req, res, isPublic, uploadMode = req.mode) {
+  if (isPublic && req.body?.mode !== undefined && req.body.mode !== uploadMode)
+    throw fail("Mode aktif sudah berubah. Buka kembali editor pada mode yang benar.", 409);
   const s = await settings(),
     file = req.file;
   if (!file) throw fail("Pilih file terlebih dahulu");
@@ -534,7 +527,7 @@ async function saveUpload(req, res, isPublic) {
   )
     throw fail("Tipe atau ukuran file tidak diizinkan");
   const mode = isPublic
-    ? req.mode
+    ? uploadMode
     : z.enum(["internal", "eksternal"]).parse(req.params.mode);
   const filename = crypto.randomUUID() + "." + ext;
   await writeFile(path.join(uploadDir, filename), file.buffer, { flag: "wx" });
@@ -569,7 +562,7 @@ app.get("/uploads/:filename", async (req, res) => {
   if (!u) throw fail("Gambar tidak ditemukan", 404);
   res.type(u.mime).sendFile(path.join(uploadDir, u.filename));
 });
-app.use("/api/admin", mode);
+app.use("/api/admin", (req, res, next) => globalAdminApi(req.path) ? next() : mode(req, res, next));
 registerNotifications(app);
 app.post("/api/admin/uploads", upload.single("file"), (req, res) =>
   saveUpload(req, res, true),
@@ -588,6 +581,16 @@ app.get("/api/admin/uploads/:id", async (req, res) => {
 const pageParams = (req) => ({
   page: Math.max(1, Math.min(100000, Math.floor(Number(req.query.page) || 1))),
   size: Math.max(1, Math.min(100, Math.floor(Number(req.query.size) || 20))),
+});
+app.get("/api/admin/images", async (req, res) => {
+  const { page, size } = pageParams(req);
+  const where = { mode: req.mode, public: true, mime: { startsWith: "image/" } };
+  const [uploads, total] = await Promise.all([
+    db.upload.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: (page - 1) * size, take: size,
+      select: { id: true, filename: true, originalName: true, createdAt: true } }),
+    db.upload.count({ where }),
+  ]);
+  res.json({ rows: uploads.map((u) => ({ id: u.id, name: u.originalName, createdAt: u.createdAt, location: "/uploads/" + u.filename })), total, page, size });
 });
 function dateFilter(q, tz = "Asia/Jakarta") {
   const r = {};
@@ -641,7 +644,9 @@ async function submissionWhere(req) {
   };
 }
 app.get("/api/admin/dashboard", async (req, res) => {
-  res.json(await dashboard(req.mode, req.query.year));
+  res.json(await dashboard(req.mode, req.query.year, new Date(), {
+    includeFollowupRows: req.adminMenus.includes("data"),
+  }));
 });
 app.post("/api/admin/review", async (req, res) => {
   const reviewed = z.boolean().parse(req.body.reviewed);
@@ -720,10 +725,13 @@ app.get("/api/admin/submissions/export/:format", async (req, res) => {
 app.get("/api/admin/submissions/:id", async (req, res) => {
   const sub = await authorizedSubmission(req);
   const { tokenHash, ...data } = sub;
-  res.json({
-    ...data,
-    form: await db.formVersion.findUnique({ where: { id: sub.formVersionId } }),
-  });
+  const form = await db.formVersion.findUnique({ where: { id: sub.formVersionId } });
+  if (req.admin.role === masterReaderRole && form) {
+    data.values = { ...data.values };
+    for (const field of form.fields)
+      if (field.type === "file" && data.values[field.code]) data.values[field.code] = "File terunggah";
+  }
+  res.json({ ...data, form });
 });
 app.get("/api/admin/submissions/:id/document/:format", download);
 app.post(
@@ -736,6 +744,11 @@ app.post(
     );
   },
 );
+app.use("/api/admin/terms", (req, res, next) => {
+  if (req.body?.mode !== undefined && req.body.mode !== req.mode)
+    return next(fail("Mode aktif sudah berubah. Buka kembali editor pada mode yang benar.", 409));
+  next();
+});
 app.get("/api/admin/terms", async (req, res) =>
   res.json({
     visibility: await termsVisibility(req.mode),
@@ -769,10 +782,10 @@ app.put("/api/admin/terms/visibility", async (req, res) => {
   res.json({ visibility });
 });
 app.post("/api/admin/terms/preview", (req, res) =>
-  res.json({ html: cleanHtml(req.body.html) }),
+  res.json({ html: cleanHtml(req.body.html, false, { rejectPendingImages: true }) }),
 );
 app.put("/api/admin/terms/draft", async (req, res) => {
-  const html = cleanHtml(req.body.html);
+  const html = cleanHtml(req.body.html, false, { rejectPendingImages: true });
   const before = await db.term.findUnique({ where: { mode: req.mode } });
   await db.$transaction(async (tx) => {
     await tx.term.update({ where: { mode: req.mode }, data: { draft: html } });
@@ -781,7 +794,7 @@ app.put("/api/admin/terms/draft", async (req, res) => {
   res.json({ ok: true });
 });
 app.post("/api/admin/terms/version", async (req, res) => {
-  const html = cleanHtml(req.body.html),
+  const html = cleanHtml(req.body.html, false, { rejectPendingImages: true }),
     publish = z.boolean().parse(req.body.publish);
   await db.$transaction(async (tx) => {
     const v = await tx.termsVersion.create({
@@ -1144,7 +1157,7 @@ app.get("/api/admin/logs/:kind", async (req, res) => {
     table = email ? "emailLog" : "activityLog",
     where = {
       ...(email
-        ? { mode: req.mode }
+        ? { OR: [{ mode: req.mode }, { mode: "global", submissionId: null }] }
         : { OR: [{ mode: req.mode }, { mode: null }] }),
       createdAt: dateFilter(req.query, (await settings()).zona_waktu),
     };
@@ -1233,37 +1246,19 @@ app.post("/api/admin/backups/:id/restore", superadmin, async (req, res) => {
     throw fail("Konfirmasi restore tidak valid/kedaluwarsa");
   res.json(await restoreBackup(t.id, req));
 });
+registerMenuAccessSettings(app, superadmin);
+app.post("/api/admin/settings/logo", superadmin, upload.single("file"), (req, res) =>
+  saveUpload(req, res, true, "global"),
+);
 app.get("/api/admin/settings", superadmin, async (req, res) => {
   const s = await settings();
+  const visible = Object.fromEntries(Object.entries(s).filter(([key]) => !key.startsWith(menuSettingPrefix)));
   res.json({
-    ...safeMailSettings(s),
-    email_transport: s.email_transport || "smtp",
+    ...safeMailSettings(visible),
+    email_transport: emailTransport(s.email_transport),
     smtp_password: undefined,
     smtp_password_set: !!s.smtp_password,
   });
-});
-app.get("/api/admin/mail/status", superadmin, async (req, res) =>
-  res.json({ providers: await mailConnectionStatus() }),
-);
-app.post(
-  "/api/admin/mail/oauth/:provider/start",
-  superadmin,
-  limiter("login_limit", 15, 5),
-  async (req, res) =>
-    res.json(
-      await beginMailConnection(
-        req,
-        res,
-        z.enum(["outlook", "gmail"]).parse(req.params.provider),
-      ),
-    ),
-);
-app.delete("/api/admin/mail/oauth/:provider", superadmin, async (req, res) => {
-  await disconnectMail(
-    z.enum(["outlook", "gmail"]).parse(req.params.provider),
-    req,
-  );
-  res.json({ ok: true });
 });
 const settingsSchema = z
   .object({
@@ -1276,7 +1271,7 @@ const settingsSchema = z
     penerima_nama: z.string().max(200),
     kode_form: z.string().max(80),
     email_pengirim: z.email(),
-    email_transport: z.enum(["smtp", "outlook", "gmail", "none"]),
+    email_transport: z.enum(["smtp", "none"]),
     email_subjek: z.string().min(1).max(200),
     email_isi: z.string().max(10000),
     smtp_host: z.string().max(250),
@@ -1307,21 +1302,11 @@ const settingsSchema = z
   .partial();
 app.put("/api/admin/settings", superadmin, async (req, res) => {
   const b = settingsSchema.parse(req.body);
-  const existing = await settings(),
-    method = b.email_transport || existing.email_transport || "smtp";
-  if (["gmail", "outlook"].includes(method)) {
-    const connection = (await mailConnectionStatus())[method];
-    if (!connection.connected || connection.needsReconnect)
-      throw fail(
-        "Hubungkan kembali akun email yang dipilih sebelum menyimpan.",
-        422,
-      );
-    if (
-      b.email_pengirim &&
-      b.email_pengirim.toLowerCase() !== connection.email.toLowerCase()
-    )
-      throw fail("Pengirim harus sama dengan akun email yang terhubung.", 422);
-    b.email_pengirim = connection.email;
+  for (const key of ["email_subjek", "email_isi"]) {
+    if (Object.hasOwn(b, key)) {
+      try { validateEmailTemplate(b[key]); }
+      catch (e) { throw fail(e.message, 422); }
+    }
   }
   if (b.zona_waktu)
     try {
@@ -1375,6 +1360,11 @@ app.put("/api/admin/settings", superadmin, async (req, res) => {
   });
   res.json({ ok: true });
 });
+app.post("/api/admin/settings/preview-email", superadmin, async (req, res) => {
+  const b = settingsSchema.pick({ email_subjek: true, email_isi: true }).required().parse(req.body);
+  try { res.json(previewEmail({ ...await settings(), ...b }, req.mode)); }
+  catch (e) { throw fail(e.message, 422); }
+});
 app.post(
   "/api/admin/settings/test-email",
   superadmin,
@@ -1400,8 +1390,8 @@ app.get("/api/admin/admins", superadmin, async (req, res) =>
 );
 const adminSchema = z.object({
   name: z.string().min(1).max(150),
-  email: z.email(),
-  role: z.enum(["admin", "superadmin"]),
+  email: bcuAdminEmail,
+  role: z.string().min(1).max(64),
   active: z.boolean(),
   password: z
     .string()
@@ -1415,6 +1405,7 @@ const adminSchema = z.object({
 app.post("/api/admin/admins", superadmin, async (req, res) => {
   const b = adminSchema.parse(req.body),
     s = await settings();
+  await validateAdminRole(b.role);
   if (
     !b.password ||
     b.password.length < Number(s.password_min) ||
@@ -1446,6 +1437,7 @@ app.put("/api/admin/admins/:id", superadmin, async (req, res) => {
     s = await settings(),
     old = await db.admin.findUnique({ where: { id: req.params.id } });
   if (!old) throw fail("Admin tidak ditemukan", 404);
+  await validateAdminRole(b.role);
   if (old.id === req.admin.id && (!b.active || b.role !== "superadmin"))
     throw fail("Anda tidak dapat menonaktifkan/menurunkan role akun sendiri");
   if (
@@ -1466,6 +1458,7 @@ app.put("/api/admin/admins/:id", superadmin, async (req, res) => {
       },
     });
     await tx.session.deleteMany({ where: { adminId: old.id } });
+    if (old.role !== b.role) await clearMenuOverrides(tx, old.id);
     await audit(
       req,
       "admin.update",
@@ -1481,6 +1474,7 @@ app.put("/api/admin/admins/:id", superadmin, async (req, res) => {
       tx,
     );
   });
+  clearAdminOtp(old.email);
   res.json({ ok: true });
 });
 app.get("/vendor/roi-id.js", (req, res) =>

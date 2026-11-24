@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { isBcuAdminEmail, normalizeAdminEmail } from "../shared/admin-email.js";
 import { withInternalEmail } from "./internal-email.js";
 import { documentTemplate } from "./document-templates.js";
 import {
@@ -14,6 +15,8 @@ const db = new PrismaClient({
   transactionOptions: { maxWait: 15000, timeout: 60000 },
 });
 try {
+  const adminEmail = normalizeAdminEmail(process.env.ADMIN_EMAIL || "admin@bcupt.id");
+  if (!isBcuAdminEmail(adminEmail)) throw Error("ADMIN_EMAIL wajib menggunakan domain @bcupt.id");
   if (
     !process.env.ADMIN_PASSWORD ||
     process.env.ADMIN_PASSWORD.startsWith("REPLACE_")
@@ -26,10 +29,10 @@ try {
       "Password seed maksimal 72 byte UTF-8 agar tidak terpotong bcrypt",
     );
   await db.admin.upsert({
-    where: { email: process.env.ADMIN_EMAIL || "admin@bcupt.id" },
+    where: { email: adminEmail },
     update: {},
     create: {
-      email: process.env.ADMIN_EMAIL || "admin@bcupt.id",
+      email: adminEmail,
       name: "Super Admin BCU",
       password: await bcrypt.hash(process.env.ADMIN_PASSWORD, 12),
       role: "superadmin",
@@ -91,7 +94,7 @@ try {
   }
   console.log(
     "Seed selesai. Akun:",
-    process.env.ADMIN_EMAIL || "admin@bcupt.id",
+    adminEmail,
     "• password: ADMIN_PASSWORD di .env",
   );
 } finally {

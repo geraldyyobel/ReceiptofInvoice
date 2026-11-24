@@ -112,12 +112,67 @@ test("API, keamanan, CRUD, email mock, PDF dan restore end-to-end", async (t) =>
       assert.equal(r.status, 201, JSON.stringify(r.body));
     assert.equal(new Set(results.map((r) => r.body.reference)).size, 6);
   });
+  await t.test("pencarian ROI memakai pembukuan master dan memerlukan bukti akses", async () => {
+    const url = "/api/public/receipts/lookup";
+    const reference = { by: "reference", reference: sub.reference.toLowerCase() };
+    const book = { by: "book", mode: "eksternal", bookYear: sub.bookYear, bookNumber: sub.bookNumber };
+    const proofs = [{ id: sub.id, token: sub.token }];
+    const expected = {
+      id: sub.id, reference: sub.reference, mode: "eksternal",
+      bookYear: sub.bookYear, bookNumber: sub.bookNumber,
+    };
+    await vendor.post(url).send({ criteria: reference, proofs }).expect(403);
+    for (const criteria of [reference, book]) {
+      await post(vendor, url, { criteria, proofs }, vc).expect(200, { found: true, receipt: expected });
+      await post(vendor, url, { criteria }, vc).expect(200, { found: true, receipt: null });
+    }
+    await post(vendor, url, {
+      criteria: reference, proofs: [{ id: sub.id, token: "x".repeat(43) }],
+    }, vc).expect(200, { found: true, receipt: null });
+    await post(vendor, url, {
+      criteria: { ...book, mode: "internal" }, proofs,
+    }, vc).expect(200, { found: false, receipt: null });
+    await post(vendor, url, {
+      criteria: { ...book, bookYear: sub.bookYear - 1 }, proofs,
+    }, vc).expect(200, { found: false, receipt: null });
+    await post(vendor, url, {
+      criteria: { by: "reference", reference: "ROI-REFERENSI-TIDAK-ADA" },
+    }, vc).expect(200, { found: false, receipt: null });
+    await post(vendor, url, { criteria: { by: "book", bookNumber: 1 } }, vc).expect(422);
+  });
+  await t.test("ambil ROI via email hanya mengirim ke alamat penyerahan", async (context) => {
+    const url = "/api/public/receipts/email";
+    const criteria = { by: "reference", reference: sub.reference };
+    const messages = [];
+    context.mock.method(nodemailer, "createTransport", () => ({
+      async sendMail(message) { messages.push(message); },
+    }));
+    const oldHost = process.env.SMTP_HOST;
+    process.env.SMTP_HOST = "smtp.example.test";
+    try {
+      await post(vendor, url, { criteria, email: "wrong@example.com" }, vc).expect(202, { ok: true });
+      await post(vendor, url, {
+        criteria: { ...criteria, reference: "ROI-INVALID" }, email: valid.email_anda,
+      }, vc).expect(202, { ok: true });
+      assert.equal(messages.length, 0);
+      await post(vendor, url, {
+        criteria, email: valid.email_anda.toUpperCase(),
+      }, vc).expect(202, { ok: true });
+      assert.equal(messages.length, 1);
+      assert.equal(messages[0].to, valid.email_anda);
+      assert.equal(messages[0].attachments[0].filename, sub.reference + ".pdf");
+      assert.equal(messages[0].attachments[0].content.subarray(0, 4).toString(), "%PDF");
+    } finally {
+      if (oldHost === undefined) delete process.env.SMTP_HOST;
+      else process.env.SMTP_HOST = oldHost;
+    }
+  });
   await t.test(
     "otorisasi Admin biasa tidak dapat mengubah Settings atau akun",
     async () => {
       await post(admin, "/api/admin/admins", {
         name: "Admin Uji",
-        email: "biasa@example.com",
+        email: "biasa@bcupt.id",
         role: "admin",
         active: true,
         password: "PasswordUji!2026",
@@ -127,7 +182,7 @@ test("API, keamanan, CRUD, email mock, PDF dan restore end-to-end", async (t) =>
       await post(
         ordinary,
         "/api/auth/login",
-        { email: "biasa@example.com", password: "PasswordUji!2026" },
+        { email: "biasa@bcupt.id", password: "PasswordUji!2026" },
         csrf,
       ).expect(200);
       await post(
@@ -186,7 +241,7 @@ test("API, keamanan, CRUD, email mock, PDF dan restore end-to-end", async (t) =>
       const prefix = "Ab1!".repeat(18),
         account = {
           name: "Uji batas password",
-          email: "batas-password@example.com",
+          email: "batas-password@bcupt.id",
           role: "admin",
           active: true,
         };
@@ -706,7 +761,7 @@ test("API, keamanan, CRUD, email mock, PDF dan restore end-to-end", async (t) =>
       await post(
         other,
         "/api/auth/login",
-        { email: "biasa@example.com", password: "PasswordUji!2026" },
+        { email: "biasa@bcupt.id", password: "PasswordUji!2026" },
         csrf,
       ).expect(200);
       await post(other, "/api/admin/mode", { mode: "eksternal" }, csrf).expect(
@@ -782,7 +837,7 @@ test("API, keamanan, CRUD, email mock, PDF dan restore end-to-end", async (t) =>
       const external = await history();
       await post(admin, "/api/admin/mode", { mode: "internal" }).expect(200);
       const ordinary = await db.admin.findUnique({
-        where: { email: "biasa@example.com" },
+        where: { email: "biasa@bcupt.id" },
       });
       await db.customHistory.create({
         data: {
@@ -986,7 +1041,7 @@ test("API, keamanan, CRUD, email mock, PDF dan restore end-to-end", async (t) =>
       });
       assert.equal(
         await db.emailLog.count({
-          where: { submissionId: sub.id, status: "terkirim" },
+          where: { submissionId: sub.id, status: "terkirim", recipient: "test@example.com" },
         }),
         1,
       );
@@ -1157,7 +1212,7 @@ test("API, keamanan, CRUD, email mock, PDF dan restore end-to-end", async (t) =>
         await post(
           other,
           "/api/auth/login",
-          { email: "biasa@example.com", password: "PasswordUji!2026" },
+          { email: "biasa@bcupt.id", password: "PasswordUji!2026" },
           csrf,
         ).expect(200);
         await post(

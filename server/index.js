@@ -3,6 +3,8 @@ import cron from "node-cron";
 import { db } from "./core.js";
 import { createBackupScheduler } from "./backup-scheduler.js";
 import { closeBrowser } from "./documents.js";
+import { removeDeprecatedMailSettings } from "./mail-settings.js";
+await db.$transaction((tx) => removeDeprecatedMailSettings(tx));
 const server = app.listen(Number(process.env.PORT) || 3000, "0.0.0.0", () =>
   console.log(`ROI BCU aktif di http://localhost:${process.env.PORT || 3000}`),
 );

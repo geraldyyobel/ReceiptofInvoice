@@ -112,7 +112,7 @@ test("Ringkasan: agregasi tahunan, tindak lanjut, carousel dan grafik responsif"
       assert.equal(await page.getByLabel("Filter tindak lanjut").inputValue(), "legality");
       assert.equal(await page.getByLabel("Tahun buku data form").inputValue(), String(year));
       await page.locator(".reference-cell").filter({ hasText: "DASHBOARD-a" }).waitFor();
-      await page.locator(".sidebar nav").getByRole("button", { name: "Ringkasan", exact: false }).click();
+      await page.locator(".sidebar nav").getByRole("link", { name: "Ringkasan", exact: false }).click();
       await page.getByRole("button", { name: "Buka Email Log →", exact: true }).click();
       await page.getByRole("button", { name: "Email Log", exact: true }).waitFor();
       assert.match(await page.getByRole("button", { name: "Email Log", exact: true }).getAttribute("class"), /active/);

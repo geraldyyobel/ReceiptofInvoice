@@ -124,6 +124,10 @@ Form builder mendukung grup kondisi **AND/OR bertingkat** (maksimal 5 tingkat da
 
 Session acak disimpan ter-hash HMAC di database; cookie httpOnly, SameSite Strict, Secure pada production. Login memakai bcrypt 12 putaran dan pembatasan per IP. Semua mutasi termasuk login membutuhkan token CSRF dari `/api/csrf`, cookie bertanda tangan, dan header `X-CSRF-Token`; Origin dibatasi `APP_ORIGIN` (pisahkan dengan koma bila perlu). CORS bukan kontrol akses tunggal. Setiap endpoint admin memeriksa session, role dan mode server. Password minimal 12 karakter dengan huruf besar, kecil dan angka untuk akun yang dikelola melalui UI.
 
+Di `/admin`, pilih **Password** atau **OTP email BCU**. Login password memerlukan akun aktif yang sudah terdaftar. Email `@bcupt.id` baru otomatis terdaftar sebagai **User** setelah verifikasi OTP berhasil. Akun nonaktif tetap diblokir. OTP memakai **Settings → Email / SMTP**. Kode berlaku lima menit, hanya bisa dipakai sekali pada browser peminta, maksimal lima tebakan, dan permintaan ulang dibatasi satu kali per menit per email. Kode gugur ketika aplikasi dimulai ulang atau backup dipulihkan.
+
+SMTP memverifikasi sertifikat server menggunakan CA bawaan Node.js serta CA tepercaya sistem operasi (Node.js 22.15+ atau 24+). Ini mendukung CA perusahaan yang sudah dipasang di Windows. Jika muncul `unable to verify the first certificate`, periksa rantai sertifikat server SMTP dan CA perusahaan di mesin aplikasi. Di Docker, CA harus dipasang di container. Sertifikat tambahan juga bisa diberikan melalui `NODE_EXTRA_CA_CERTS` saat menjalankan Node.js. Mulai ulang aplikasi setelah mengubah CA. Verifikasi sertifikat SMTP tetap aktif.
+
 Sanitasi allowlist server untuk ketentuan/template; placeholder selalu di-escape; JS/remote CSS/URL CSS tidak diizinkan. PDF menggunakan konteks Chromium tanpa JavaScript dan tanpa akses jaringan. Hanya gambar unggahan lokal yang divalidasi di-embed. Unggahan diperiksa signature MIME, ukuran dan nama acak, tanpa SVG/HTML. File vendor privat hanya dapat diunduh admin mode yang sama; gambar editor sengaja publik. File opsional vendor menyimpan ID+token unggahan pada nilai jawaban. Hindari unggah informasi rahasia ke editor ketentuan karena itu konten publik.
 
 `SESSION_SECRET` dan `ENCRYPTION_KEY` wajib diisi; tidak ada fallback rahasia bawaan. Simpan kunci di secret manager dan backup terpisah. Mengubah SESSION_SECRET membatalkan session/token unduh lama. Mengganti ENCRYPTION_KEY memerlukan prosedur rotasi data SMTP dan arsip; jangan menggantinya tanpa menyimpan kunci lama.
@@ -180,9 +184,11 @@ Pembaruan 2 November 2026: Email Anda pada form Internal memakai delapan pilihan
 
 Menu Editor Ketentuan menyediakan sakelar ON/OFF per mode. OFF melewati halaman persetujuan dan field paham_ketentuan tanpa menghapus isi/versi. ON kembali mewajibkan persetujuan. Perubahan dicatat pada Activity Log; draft yang memakai status lama ditolak sampai dimuat ulang. Status dan persetujuan disimpan pada snapshot documentSettings submission.
 
-Tautan langsung per mode: `/internal` dan `/eksternal`. Halaman `/` menyediakan kedua tautan yang bisa disalin/dibuka pada tab baru. Setiap tautan langsung memuat alur mode tersebut (termasuk pengaturan ON/OFF ketentuan). Halaman sukses disimpan terpisah per mode dan tidak mengalihkan beranda.
+Halaman `/` membuka pencarian Receipt of Invoice berdasarkan nomor referensi atau berdasarkan nomor buku, tahun buku, dan mode. Browser dengan sesi penyerahan yang masih aktif dapat langsung mengunduh dokumen. Di sesi lain, masukkan email saat penyerahan untuk meminta PDF ke alamat yang tercatat. Pengiriman bergantung pada pengaturan SMTP.
 
-Login akun pengirim Outlook/Microsoft 365 dan Gmail/Google Workspace tersedia di Settings → Email / SMTP. Panduan registrasi aplikasi, callback, environment, dan pemakaian ada di [OAUTH_EMAIL.md](OAUTH_EMAIL.md). Konfigurasi Client ID/Secret wajib dilakukan sebelum login aktif; SMTP manual tetap tersedia.
+Tautan `/internal` dan `/eksternal` tersedia di bawah pencarian. Masing-masing memuat form dan ketentuan sesuai mode. Akses admin tersedia di `/admin`.
+
+Email menggunakan SMTP melalui Settings → Email / SMTP. Fitur login Google/Outlook telah dihapus; konfigurasi host, port, user, password dan pengirim tetap tersedia. Pilih Tidak aktif untuk menonaktifkan pengiriman.
 
 ## Batas tanggal pada Form Builder
 Pilih pertanyaan bertipe Tanggal, buka Validasi lanjutan, lalu isi Maksimal bulan ke belakang dari hari ini (contoh: 6). Centang Tidak boleh memilih tanggal setelah hari ini untuk membatasi sampai hari ini. Batas awal/akhir tetap juga tersedia; jika digabung, batas terketat berlaku. Simpan versi form agar aturan aktif. Pengaturan baru tidak diaktifkan otomatis pada form lama. Kalender, review, dan server memakai aturan yang sama sesuai zona waktu aplikasi (default Asia/Jakarta). Hitungan memakai bulan kalender, inklusif; akhir bulan dipangkas ke hari terakhir bulan tujuan (31 Agustus dikurangi 6 bulan menjadi 28/29 Februari).
@@ -245,3 +251,67 @@ Template Dokumen menyediakan `{{nomor_buku}}` (nomor urut master per mode/tahun)
 Ringkasan kini menampilkan satu notifikasi yang bisa digeser, lima kartu indikator, tren harian/bulanan, nilai per mata uang, Top 10 vendor, komposisi, sumber permintaan, status email, waktu pengisian dan tindak lanjut dengan filter Data Form. Definisi angka, aturan periode, migration indeks, cara pembaruan dan hasil uji tersedia di [RINGKASAN_ADMIN.md](RINGKASAN_ADMIN.md). Seluruh agregat dibatasi mode/tahun buku dan dibaca per batch 500; grafik tidak memakai paket baru.
 
 Audit kode terbaru: [AUDIT_KODE_2026-11-17.md](AUDIT_KODE_2026-11-17.md). Respons pencarian/tab log yang terlambat dan error login/logout serentak diperbaiki; suite akhir PostgreSQL 97/97 lulus.
+
+Pembaruan email: konfigurasi OAuth Google/Microsoft dan login akun pengirim telah dihapus. SMTP merupakan satu-satunya metode pengiriman yang didukung.
+
+Audit terbaru 18 November 2026: [AUDIT_KODE_2026-11-18.md](AUDIT_KODE_2026-11-18.md), mencakup perbaikan konkurensi OAuth dan temuan dependensi alat build yang masih terbuka.
+
+## Ukuran huruf ketentuan
+
+Kontrol ukuran TinyMCE menggunakan px: angka 14 berarti 14px, angka 18 berarti 18px. Nilai pt masih dapat dipakai jika ditulis eksplisit, tetapi 18pt setara 24px dan 14pt sekitar 18,67px. HTML lama tidak diubah otomatis. Blok teks lalu pilih/ketik ukuran yang diinginkan untuk mengganti format sebelumnya. Gaya dasar ketentuan pada editor, pratinjau dan publik menggunakan satu sumber di client/src/terms-content.css, termasuk heading; ukuran font tidak lagi berubah otomatis pada HP. Format inline yang disimpan tetap dihormati.
+
+## Gambar pada ketentuan
+
+Unggahan gambar ditunggu sampai selesai sebelum autosave/simpan/publikasi; jika gagal, versi sebelumnya tetap dipakai. Gunakan **Sisipkan gambar tersimpan** untuk memasukkan kembali foto yang pernah diunggah pada mode aktif tanpa unggah ulang. Referensi gambar yang sudah terhapus dari isi tidak dipulihkan ke posisi tebakan. Panduan dan bukti: [PERBAIKAN_GAMBAR_KETENTUAN_2026-11-18.md](PERBAIKAN_GAMBAR_KETENTUAN_2026-11-18.md).
+
+Audit alur terbaru: [AUDIT_FLOW_2026-11-18.md](AUDIT_FLOW_2026-11-18.md). Tiga masalah rollback ketentuan diperbaiki; suite PostgreSQL 117/117 lulus, ekspor/pencarian pada 10.000+ baris per mode diverifikasi tanpa mengubah data aktif. Empat peringatan dependensi alat build tetap dicatat sebagai temuan terbuka.
+
+Testing terbaru 19 November 2026: [TESTING_2026-11-19.md](TESTING_2026-11-19.md). Seluruh 117 tes lulus. Audit npm saat ini 0 peringatan; advisori yang mendasari empat peringatan pada laporan sebelumnya telah dicabut, tanpa perubahan versi dependensi.
+
+## Placeholder subjek dan isi email
+
+Settings > Email / SMTP mendukung placeholder pada **Subjek email** dan **Isi email**, untuk SMTP. Contoh subjek: `Receipt of Invoice — Buku {{nomor_buku}} / {{tahun_buku}}`. Contoh isi: `Terima kasih {{received_from}}. Invoice {{invoice_number}} senilai {{currency}} {{format_number total}} diterima dengan referensi {{nomor_referensi}}.`
+
+Daftar placeholder dapat dibuka dan disalin di Settings. Semua kode field (termasuk field kustom) dapat dipakai; nilai kosong/tidak tersedia menghasilkan teks kosong. `{{nomor_buku}}` dan `{{tahun_buku}}` mengambil metadata master per mode/tahun berdasarkan tanggal invoice, sedangkan `{{tahun}}` adalah tahun penerimaan. Metadata yang belum tersedia ditampilkan `-`. Total dihitung server dari amount_nett + vat. Nilai master dan setting dokumen saat submission dipakai agar konsisten dengan PDF, termasuk saat kirim ulang; perubahan Tabel Kustom tidak mengubah hasil.
+
+Format angka: `{{format_number amount_nett}}`, `{{format_number vat}}`, `{{format_number total}}` (format Indonesia, 2 desimal). Format tanggal: `{{format_date invoice_date 'dd-MM-yyyy'}}`; tanggal kosong menghasilkan `-`. Setting publik yang didukung: nama_aplikasi, nama_perusahaan, kop, penerima_nama, kode_form, zona_waktu, logo, melalui `{{setting.kode_form}}` dan seterusnya. Password/token tidak tersedia. Isi email berupa teks biasa, tanpa HTML, blok Handlebars atau triple braces. Subjek dibersihkan dari karakter baris baru/kontrol.
+
+**Pratinjau email** memakai teks yang sedang diedit dan data contoh No. Buku 1/tahun berjalan sesuai zona waktu, PT Contoh Vendor, total IDR 1.110.000,00; field di luar contoh dapat kosong. Pratinjau tidak menyimpan atau mengirim email. Simpan pengaturan agar berlaku untuk pengiriman berikutnya di kedua mode. **Tes kirim email** tetap hanya menguji koneksi dengan pesan tes tetap tanpa PDF. Pengaturan tersimpan lama tidak diubah otomatis. Tidak ada dependency/migration baru.
+
+## URL menu admin
+
+Setiap menu utama memiliki tautan yang dapat dibuka langsung, di-bookmark, dan dibuka di tab baru. Navigasi memakai History API browser tanpa dependency tambahan. Refresh serta tombol Kembali/Maju mengikuti menu dan tab yang dipilih.
+
+| Menu | URL |
+|---|---|
+| Ringkasan | `/admin/{mode}/ringkasan` |
+| Notifikasi | `/admin/{mode}/notifikasi` |
+| Data Form | `/admin/{mode}/data-form` |
+| Tabel Kustom | `/admin/{mode}/tabel-kustom` |
+| Editor Ketentuan | `/admin/{mode}/ketentuan` |
+| Form Builder | `/admin/{mode}/form-builder` |
+| Template Dokumen | `/admin/{mode}/template` |
+| Logs & Backup | `/admin/{mode}/logs-backup` |
+| Settings | `/admin/settings` |
+
+`{mode}` diisi `internal` atau `eksternal`, misalnya `/admin/internal/data-form` dan `/admin/eksternal/data-form`. Mode di URL menentukan ruang kerja; badge dan warna mengikuti URL. Dua tab dengan login yang sama dapat memakai mode berbeda. Settings tetap global dan dapat dibuka tanpa memilih mode.
+
+Super Admin dapat membuka **Settings → Akses Menu** untuk memilih menu bawaan per role dan menambahkan pengecualian per akun. Pilihan **Ikuti role** memakai aturan bawaan, sedangkan **Izinkan** dan **Blokir** berlaku untuk akun tersebut. Aturan menu berlaku di kedua mode serta pada URL dan API langsung. Settings dan perubahan akses tetap khusus Super Admin. Backup dan restore seluruh aplikasi juga tetap memerlukan role Super Admin.
+
+Gunakan **Tambah role**, simpan menu yang diperbolehkan, lalu tetapkan role di **Settings → Akun admin**. Role baru mulai tanpa akses menu. Izin **User** selalu terbatas pada daftar dan detail Data Form Master tanpa ekspor, unduhan dokumen atau lampiran, dan kirim ulang email. Saat role akun diganti, pengecualian menu sebelumnya dihapus dan sesi akun diakhiri.
+
+Tab Settings menggunakan `?tab=umum|dokumen|email|keamanan|backup|unggahan|tema|akun`, misalnya `/admin/settings?tab=email`. Logs memakai `?tab=activity|email|backups`, Notifikasi memakai `?tab=inbox|sent` dengan filter `unread=1` dan `page`. Tab tidak valid memakai tab awal; Settings dan Backup/Restore tetap dibatasi role. Dialog, detail, dan tombol aksi tidak membuat URL baru.
+
+Filter Data Form disimpan sebagai query `year`, `page`, `q`, `vendor`, `from`, `to`, `status`, `followup`, `sort`, `dir`; misalnya `/admin/{mode}/data-form?year=2026&page=2&followup=legality`. Pengetikan pencarian mengganti entri history saat ini supaya tombol Kembali tidak menelusuri setiap huruf. Tahun Ringkasan juga disimpan di `?year=2026`. Filter/tampilan lokal Tabel Kustom tetap mengikuti fitur view yang sudah ada.
+
+`/admin` tetap dapat dipakai dan diarahkan ke Ringkasan; tautan Settings lama dengan `mail_oauth` diarahkan ke tab Email dengan informasi bahwa fitur tersebut telah dihapus. Endpoint login/callback OAuth lama mengembalikan 410 dan tidak dapat menghubungkan akun lagi. Tautan langsung yang sudah menyertakan mode tetap dipertahankan saat login dan tidak memerlukan pemilihan mode lagi. Tautan lama tanpa mode diarahkan memakai pilihan terakhir pada tab (sessionStorage), lalu default session lama bila tersedia; jika keduanya belum ada, pemilih mode ditampilkan. Mode terakhir pada tab hanya membantu navigasi tautan lama/keluar dari Settings; URL tetap menjadi sumber mode pada halaman yang sudah memiliki prefix. Tombol Pindah mode mengembalikan pengguna ke Ringkasan mode tujuan. Halaman admin yang tidak dikenal menampilkan pesan dan tautan kembali ke Ringkasan.
+
+Express dan Vite melayani fallback SPA untuk URL tersebut. Jika frontend dipasang di server web terpisah, atur fallback berkas yang tidak ditemukan ke `index.html` untuk rute halaman; teruskan `/api`, `/uploads`, dan `/vendor` ke backend sesuai konfigurasi sebelumnya. Tidak ada migration/perubahan data untuk pembaruan navigasi ini.
+
+Permintaan API dari halaman mode membawa header `X-ROI-Mode: internal|eksternal`. Backend memvalidasi nilai header dan memakai mode tersebut untuk query, perubahan, ekspor, unggahan, notifikasi, serta audit. ID dari mode lain tetap ditolak. Client mengikat mode pada callback asal, termasuk operasi async/unduhan, sehingga navigasi tidak mengalihkan operasi tertunda ke mode baru. API Settings, akun, koneksi email dan backup lengkap bersifat global dan tetap dibatasi role; backup lengkap tetap mencakup kedua mode. Tanpa header, API lama memakai mode session untuk kompatibilitas. Login/CSRF/role tetap wajib sesuai endpoint; mode bukan pengganti otorisasi. Email tes tanpa mode tersimpan sebagai global dan dapat dilihat dari Email Log kedua mode, tanpa mencampur invoice mode lain.
+
+## Pengiriman email melalui SMTP
+
+Settings > Email / SMTP menyediakan metode SMTP atau Tidak aktif. Isi host, port, user, password, pengirim, subjek dan isi email; lalu Simpan pengaturan. Password SMTP tetap terenkripsi dan tidak ditampilkan kembali. Tes kirim email mengirim pesan koneksi tanpa lampiran; pengiriman ROI melampirkan PDF dan mengisi placeholder seperti sebelumnya. Kebutuhan autentikasi SMTP mengikuti penyedia email Anda.
+
+Pada startup dan restore, token, konfigurasi dan alur login Google/Outlook lama (`mail_oauth_*`) dibersihkan. Jika metode lama masih gmail/outlook atau tidak dikenal, pengiriman menjadi Tidak aktif agar tidak diam-diam berpindah akun SMTP. Metode SMTP yang sudah aktif dan seluruh kredensial SMTP dipertahankan. Restore backup lama tidak mengaktifkan kembali login provider. Arsip backup historis tidak ditulis ulang; data OAuth di dalamnya dibuang saat restore. Variabel environment OAuth lama tidak digunakan lagi dan dihapus dari .env.example. Tidak ada pencabutan izin di akun Google/Microsoft secara jarak jauh; jika pernah terhubung, izin lama dapat dicabut melalui pengaturan akun penyedia.

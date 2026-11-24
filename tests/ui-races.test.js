@@ -28,7 +28,7 @@ test("respons lambat tidak boleh menimpa filter atau tab terbaru", async (t) => 
           else await route.fulfill({ json: rows(q === "baru" ? "HASIL-BARU" : "HASIL-AWAL") });
         });
         await page.goto(origin + "/admin");
-        await page.locator(".sidebar nav").getByRole("button", { name: /Data Form/ }).click();
+        await page.locator(".sidebar nav").getByRole("link", { name: /Data Form/ }).click();
         await page.getByText("HASIL-AWAL", { exact: true }).waitFor();
         await page.getByLabel("Cari data", { exact: true }).fill("lama"); await held.promise;
         await page.getByLabel("Cari data", { exact: true }).fill("baru");
@@ -49,7 +49,7 @@ test("respons lambat tidak boleh menimpa filter atau tab terbaru", async (t) => 
           } else await route.fulfill({ json: { rows: [{ id: "new", recipient: "new@example.test", status: "terkirim", createdAt: "2026-11-17T00:00:00Z" }], total: 1, page: 1, size: 20 } });
         });
         await page.goto(origin + "/admin");
-        await page.locator(".sidebar nav").getByRole("button", { name: /Logs & Backup/ }).click(); await held.promise;
+        await page.locator(".sidebar nav").getByRole("link", { name: /Logs & Backup/ }).click(); await held.promise;
         await page.getByRole("button", { name: "Email Log", exact: true }).click();
         await page.getByText("new@example.test", { exact: true }).waitFor();
         const response = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith("/logs/activity"));
@@ -65,7 +65,7 @@ test("respons lambat tidak boleh menimpa filter atau tab terbaru", async (t) => 
           else await route.fulfill({ json: created ? [{ id: "backup-uji", filename: "arsip-baru.zip.enc", status: "selesai", size: 1000, createdAt: "2026-11-17T00:00:00Z" }] : [] });
         });
         await page.goto(origin + "/admin");
-        await page.locator(".sidebar nav").getByRole("button", { name: /Logs & Backup/ }).click();
+        await page.locator(".sidebar nav").getByRole("link", { name: /Logs & Backup/ }).click();
         await page.getByRole("button", { name: "Backup & Restore", exact: true }).click();
         await page.getByRole("button", { name: "＋ Backup sekarang", exact: true }).click();
         await page.getByText("arsip-baru.zip.enc", { exact: true }).waitFor();

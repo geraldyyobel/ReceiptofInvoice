@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
-import { api, download } from "./api";
+import { api, download, modeClient } from "./api";
 import { Busy, Modal, Notice, Color, Pager } from "./ui";
 import { CustomBackups } from "./custom-backups";
 import { indexCells } from "../../shared/table-data";
 export function CustomTable({ onError }) {
+  const { api, download } = modeClient();
   const [data, setData] = useState(null),
     [selected, setSelected] = useState(null),
     [colForm, setColForm] = useState(null),
