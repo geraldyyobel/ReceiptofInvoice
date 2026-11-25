@@ -73,9 +73,10 @@ export function CustomTable({ onError, admin, mode, config }) {
     if (!pendingWrites.current) { refreshAfterPanel.current = false; void load(true); }
   }
   useEffect(() => {
+    if (q === search) return;
     const timer = setTimeout(() => { setSearch(q); setPage(1); }, 300);
     return () => clearTimeout(timer);
-  }, [q]);
+  }, [q, search]);
   useEffect(() => {
     mounted.current = true;
     setDraftCount([...draftCache.current.values()].filter((entry) => dirtyReview(entry).length || Object.keys(entry.cellDrafts || {}).length).length);

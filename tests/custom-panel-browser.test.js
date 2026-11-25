@@ -83,6 +83,19 @@ test("panel detail kustom: desktop/mobile, draf, konflik, navigasi, izin dan res
       const reader = await browser.newContext(); await login(reader, readerAccount.email, "PanelUji!2026");
       assert.equal((await reader.request.get(origin + "/api/admin/custom/rows/" + first.id, { headers: { "X-ROI-Mode": "internal" } })).status(), 403); await reader.close();
     });
+    await t.test("timer pencarian awal tidak mengembalikan pagination ke halaman pertama", async () => {
+      const page = await context.newPage();
+      try {
+        const now = new Date(); await page.clock.install({ time: now }); await page.clock.pauseAt(now);
+        await page.goto(origin + "/admin/internal/tabel-kustom");
+        await page.getByLabel("Tahun buku tabel kustom").selectOption("2091");
+        await page.locator('tr[data-book-number="1"][data-book-year="2091"]').waitFor();
+        await page.locator(".pager").getByRole("button", { name: "Berikutnya" }).evaluate((el) => el.click());
+        const secondPage = page.locator('tr[data-book-number="51"][data-book-year="2091"]'); await secondPage.waitFor();
+        await page.clock.fastForward(301); await page.clock.runFor(100);
+        assert.equal(await secondPage.count(), 1);
+      } finally { await page.clock.resume(); await page.close(); }
+    });
     await t.test("buka/tutup, sorotan, Esc, fokus kembali dan perangkap Tab", async () => {
       const page = await openPage(); try {
         const panel = dialog(page); assert.equal(await panel.evaluate((el) => document.activeElement === el), true);
