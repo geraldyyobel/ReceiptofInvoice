@@ -177,6 +177,7 @@ test("browser desktop/mobile: form vendor, admin, TinyMCE dan navigasi", async (
       .fill("SINKRONISASI ULANG");
     assert.equal(await execute.isEnabled(), true);
     await dialog.getByRole("button", { name: "Batal" }).click();
+    await page.locator(".custom-table").getByRole("button", { name: "Detail", exact: false }).first().click();
     const edited = page
       .getByRole("textbox", { name: "Received from", exact: true })
       .first();
@@ -188,6 +189,8 @@ test("browser desktop/mobile: form vendor, admin, TinyMCE dan navigasi", async (
     );
     await edited.press("Enter");
     assert.equal((await saved).status(), 200);
+    await page.keyboard.press("Escape");
+    await page.getByRole("dialog", { name: "Detail baris tabel kustom" }).waitFor({ state: "hidden" });
     const undo = page.getByRole("button", { name: "Undo", exact: true }),
       redo = page.getByRole("button", { name: "Redo", exact: true });
     await page.locator(".notification-bell").click();
@@ -201,11 +204,11 @@ test("browser desktop/mobile: form vendor, admin, TinyMCE dan navigasi", async (
     await page.waitForTimeout(350);
     page.off("request", watchUndo);
     assert.equal(backgroundUndo, 0, "Dialog terbuka tidak boleh mengubah tabel di belakangnya");
-    assert.equal(await edited.inputValue(), "EDIT UI TETAP");
+    assert.equal(await page.locator(".custom-table").getByText("EDIT UI TETAP", { exact: true }).count(), 1);
     await page.keyboard.press("Escape");
     await notificationDialog.waitFor({ state: "hidden" });
     await undo.click();
-    await page.locator('input[value="PT Uji Browser"]').waitFor();
+    await page.locator(".custom-table").getByText("PT Uji Browser", { exact: true }).waitFor();
     assert.equal(await redo.isEnabled(), true);
     const config = await (
       await page.request.get("http://127.0.0.1:3199/api/public/eksternal/form")
@@ -235,16 +238,12 @@ test("browser desktop/mobile: form vendor, admin, TinyMCE dan navigasi", async (
     await page
       .getByRole("heading", { name: "Tabel Kustom", exact: true })
       .click();
-    await page
-      .getByRole("textbox", { name: "Invoice Number", exact: true })
-      .first()
-      .waitFor();
-    await page.locator('input[value="INV-POLL"]').waitFor({ timeout: 35000 });
-    assert.equal(await edited.inputValue(), "PT Uji Browser");
+    await page.locator(".custom-table").getByText("INV-POLL", { exact: true }).waitFor({ timeout: 35000 });
+    assert.equal(await page.locator(".custom-table").getByText("PT Uji Browser", { exact: true }).count(), 1);
     assert.equal(await redo.isEnabled(), true);
     await page.keyboard.press("Control+Shift+Z");
-    await page.locator('input[value="EDIT UI TETAP"]').waitFor();
-    assert.equal(await edited.inputValue(), "EDIT UI TETAP");
+    await page.locator(".custom-table").getByText("EDIT UI TETAP", { exact: true }).waitFor();
+    assert.equal(await page.locator(".custom-table").getByText("EDIT UI TETAP", { exact: true }).count(), 1);
     assert.equal(await redo.isDisabled(), true);
     const backupResponse = await page.request.post(
       "http://127.0.0.1:3199/api/admin/backups",

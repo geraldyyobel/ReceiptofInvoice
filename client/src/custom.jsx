@@ -4,7 +4,7 @@ import { Busy, Modal, Notice, Color, Pager } from "./ui";
 import { CustomBackups } from "./custom-backups";
 import { indexCells } from "../../shared/table-data";
 import { CustomRowPanel } from "./custom-panel";
-import { dirtyReview } from "../../shared/custom-panel-state";
+import { dirtyReview, displayCell } from "../../shared/custom-panel-state";
 export function CustomTable({ onError, admin, mode, config }) {
   const { api, download } = useMemo(() => modeClient(mode), [mode]);
   const [panelId, setPanelId] = useState(null), [draftCount, setDraftCount] = useState(0);
@@ -229,7 +229,9 @@ export function CustomTable({ onError, admin, mode, config }) {
     );
   }
   return (
-    <>
+    <div className="custom-workspace">
+      <div className="custom-intro"><p>Salinan kerja invoice. Klik <b>Detail</b> untuk meninjau dan mengedit.</p>
+      <details className="custom-help"><summary>Panduan</summary><div>
       <Notice>
         Setiap form masuk otomatis ditambahkan sebagai baris baru. Edit, warna,
         susunan kolom, dan view yang sudah Anda atur tetap disimpan. Halaman
@@ -239,6 +241,8 @@ export function CustomTable({ onError, admin, mode, config }) {
         Kolom yang dihapus tidak dibuat ulang; data lengkap tetap tersedia di
         Data Form. Warna XLSX dipertahankan; format CSV tidak mendukung warna.
       </Notice>
+      <p className="muted">Undo/Redo menyimpan hingga 50 perubahan per mode. Ctrl+Z, Ctrl+Y atau Ctrl+Shift+Z berlaku saat tidak mengetik. Ekspor mencakup seluruh hasil filter, bukan hanya halaman ini.</p>
+      </div></details></div>
       <Notice type="success">{message}</Notice>
       {!!draftCount && <Notice>Ada draf pada {draftCount} baris. Buka kembali detail baris untuk melanjutkan penyimpanan.</Notice>}
       <div className="toolbar wrap">
@@ -329,14 +333,6 @@ export function CustomTable({ onError, admin, mode, config }) {
           </button>
         ))}
       </div>
-      <p className="muted">
-        <small>
-          Undo/Redo menyimpan hingga 50 perubahan Anda per mode. Pintasan:
-          Ctrl+Z, Ctrl+Y atau Ctrl+Shift+Z saat tidak mengetik di isian. Reset
-          salinan dan Restore mengosongkan riwayat.
-        </small>
-      </p>
-      <p className="muted">Ekspor mencakup seluruh hasil pencarian pada tahun buku yang dipilih, termasuk halaman berikutnya.</p>
       <div className="filterbar">
         <label>Tahun buku
           <select aria-label="Tahun buku tabel kustom" value={year} disabled={busy || saving > 0} onChange={(e) => { setYear(e.target.value); setPage(1); }}>
@@ -362,6 +358,7 @@ export function CustomTable({ onError, admin, mode, config }) {
             setQ(e.target.value);
           }}
         />
+        <details className="column-menu custom-view-options"><summary>View tersimpan</summary><div className="column-popover">
         <select
           aria-label="View tersimpan"
           value=""
@@ -414,6 +411,7 @@ export function CustomTable({ onError, admin, mode, config }) {
             </option>
           ))}
         </select>
+        </div></details>
       </div>
       {loading && <Busy>Memuat halaman…</Busy>}
       <section className="paper table-paper" aria-busy={loading} tabIndex={-1} ref={tableFallback}>
@@ -442,11 +440,13 @@ export function CustomTable({ onError, admin, mode, config }) {
                         }),
                       );
                     }}
+                    data-column-type={c.type}
                     style={{ background: c.color || undefined }}
                   >
                     <div className="between">
                       <button
                         className="table-sort"
+                        title={c.label}
                         onClick={() => {
                           setSort(c.id);
                           setDir(sort === c.id && dir === "asc" ? "desc" : "asc");
@@ -480,8 +480,9 @@ export function CustomTable({ onError, admin, mode, config }) {
                   onClick={(e) => { if (!e.target.closest("input,textarea,select,button,a,[contenteditable=true]")) openPanel(r); }}
                   onKeyDown={(e) => { if (e.target === e.currentTarget && ["Enter", " "].includes(e.key)) { e.preventDefault(); openPanel(r); } }}>
                   <td>
-                    <div className="inline">
-                      <span className="muted">{r.bookNumber ?? "—"}</span>
+                    <div className="inline custom-book-actions">
+                      <b>{r.bookNumber ?? "—"}</b>
+                      <button className="secondary small" onClick={() => openPanel(r)}>Detail →</button>
                       <button
                         className="ghost tiny"
                         aria-label="Warna baris"
@@ -504,28 +505,19 @@ export function CustomTable({ onError, admin, mode, config }) {
                         ✕
                       </button>
                     </div>
-                    <small>Tahun {r.bookYear ?? "—"}</small>
-                    <small>
-                      {r.masterId ? "Salinan master" : "Baris manual"}
-                    </small>
+                    <div className="custom-row-meta"><small>Tahun {r.bookYear ?? "—"}</small><small>{r.masterId ? "Salinan master" : "Baris manual"}</small></div>
                   </td>
                   {cols.map((c) => (
                     <td
                       key={c.id}
+                      data-column-type={c.type}
                       style={{
                         background:
                           cell(r, c)?.color || r.color || c.color || undefined,
                       }}
                     >
                       <div className="cell-wrap">
-                        <CellInput
-                          key={String(value(r, c))}
-                          column={c}
-                          initial={value(r, c)}
-                          onSave={(v) =>
-                            updateCell(r, c, { value: v }).catch(onError)
-                          }
-                        />
+                        <span className={c.code === "nomor_referensi" ? "custom-cell-value reference-cell" : "custom-cell-value"} title={displayCell(value(r, c))}>{displayCell(value(r, c))}</span>
                         <button
                           className="cell-color"
                           aria-label="Warna sel"
@@ -571,7 +563,6 @@ export function CustomTable({ onError, admin, mode, config }) {
           if (index >= 0 && index < panelRows.current.length) setPanelId(panelRows.current[index].id); }} />}
       <details
         className="paper custom-advanced"
-        style={{ marginTop: 24, padding: 20 }}
       >
         <summary>Tindakan lanjutan</summary>
         <p className="muted">
@@ -815,7 +806,7 @@ export function CustomTable({ onError, admin, mode, config }) {
           />
         </Modal>
       )}
-    </>
+    </div>
   );
 }
 function CellInput({ column: c, initial, onSave, draft, onDraft, disabled = false }) {

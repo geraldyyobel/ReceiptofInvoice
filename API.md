@@ -92,6 +92,8 @@ Respons: `{id,reference,token,email}`. Nilai tersembunyi dibuang server. `total`
 
 ### Review baris tabel kustom
 
+Tabel Kustom menampilkan nilai secara ringkas seperti Data Form. Gunakan Detail (atau klik baris) untuk mengedit pada dialog tengah; desktop memakai dua kolom field, layar kecil satu kolom layar penuh. Panduan dan pengaturan view dapat dibuka sesuai kebutuhan. Nilai/label panjang dapat dilihat lengkap di Detail atau melalui tooltip; label field diperluas saat isian mendapat fokus. Pemisahan tabel dan editor ini hanya mengubah tampilan, tanpa mengubah data/warna/kolom tersimpan.
+
 GET `/api/admin/custom/rows/:id` mengembalikan `{row,cells}` untuk satu baris mode aktif. Endpoint hanya membaca data, tidak membuat jurnal Undo/Redo, dan memerlukan izin menu Tabel Kustom. Mode lain/baris terhapus menghasilkan 404; tanpa login 401; tanpa izin menu 403. Pembanding master tetap menggunakan GET `/api/admin/submissions/:id` dan memerlukan izin Data Form tersendiri.
 
 GET `/api/admin/custom` menerima `review=unchecked|flagged|noted|problem` bersama parameter tahun, pencarian, sorting dan pagination yang sudah ada. Tanpa parameter review, semua baris sesuai filter lain ditampilkan. `flagged` mencakup `followup` dan `problem`; `problem` hanya penanda bermasalah. Respons baris menambahkan `reviewChecked:boolean`, `reviewFlag:"followup"|"problem"|null`, `reviewNote:string|null`. Properti `reviewProgress={total,checked,flagged,noted}` menghitung seluruh baris mode/tahun terpilih, tanpa dipengaruhi pencarian, filter review atau halaman; `total` pada respons daftar tetap jumlah hasil setelah filter. Tahun `all` menghitung seluruh tahun mode aktif.

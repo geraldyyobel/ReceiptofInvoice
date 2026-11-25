@@ -108,8 +108,12 @@ test("panel detail kustom: desktop/mobile, draf, konflik, navigasi, izin dan res
         await page.keyboard.press("Escape"); await panel.waitFor({ state: "hidden" }); await settle(page);
         assert.equal(await page.locator('tr[data-book-number="1"][data-book-year="2091"]').evaluate((el) => document.activeElement === el), true);
         assert.equal(await page.locator(".custom-row-active").count(), 0);
-        await page.locator('tr[data-book-number="1"][data-book-year="2091"] input').first().click();
-        assert.equal(await panel.count(), 0, "klik input tabel tidak membuka panel");
+        assert.equal(await page.locator('.custom-table input,.custom-table select').count(), 0, "tabel menampilkan nilai; edit dilakukan di Detail");
+        const row = page.locator('tr[data-book-number="1"][data-book-year="2091"]');
+        assert.ok((await row.boundingBox()).height <= 66, "baris tabel tetap rapat");
+        assert.ok((await page.locator('.custom-scroll').boundingBox()).y < 360, "kontrol tidak menghabiskan layar di atas tabel");
+        await page.screenshot({ path: path.join(out, "desktop-table.png") });
+        await row.getByRole("button", { name: "Detail", exact: false }).click(); await panel.waitFor();
       } finally { await page.close(); }
     });
     await t.test("seluruh tipe field, kolom tersembunyi dan pembanding master", async () => {

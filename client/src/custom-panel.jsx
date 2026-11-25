@@ -172,12 +172,14 @@ export function CustomRowPanel(props) {
             : "Baris telah berpindah tahun buku. Periksa pembaruan dan pilih Muat ulang baris sebelum melanjutkan."}
             {state.unavailable !== "missing" && <button type="button" className="secondary" onClick={reloadReview}>Muat ulang baris</button>}</div>}
           <section className="custom-panel-review" aria-labelledby="custom-review-title">
+            <div className="custom-review-heading">
             <div className="between"><h3 id="custom-review-title">Review</h3><span role="status" aria-live="polite" className={status === "Gagal" ? "review-save-error" : "muted"}>{status}</span></div>
-            <div className="button-row" style={{ marginBottom: 16 }}>{["undo", "redo"].map((direction) =>
+            <div className="button-row">{["undo", "redo"].map((direction) =>
               <button type="button" className="secondary small" key={direction}
                 disabled={props.busy || props.writes > 0 || !!dirty.length || hasCellDrafts || !props.history?.[direction + "Count"]}
                 onClick={async () => { await callbacks.current.travel(direction); if (alive.current) void readRow(); }}>
                 {direction === "undo" ? "↶ Undo" : "↷ Redo"}</button>)}</div>
+            </div><div className="custom-review-controls">
             <label className="check-label"><input type="checkbox" checked={state.draft.reviewChecked} disabled={disabled}
               onChange={(e) => { reviewChange("reviewChecked", e.target.checked); void saveReview(["reviewChecked"]); }} />Dicek</label>
             <fieldset className="custom-review-flags" disabled={disabled}><legend>Penanda</legend>
@@ -186,6 +188,7 @@ export function CustomRowPanel(props) {
                   onClick={() => { reviewChange("reviewFlag", state.draft.reviewFlag === flag ? null : flag); void saveReview(["reviewFlag"]); }}><span aria-hidden="true">{icon}</span> {label}</button>)}
               <button type="button" className="secondary" disabled={!state.draft.reviewFlag} onClick={() => { reviewChange("reviewFlag", null); void saveReview(["reviewFlag"]); }}>Hapus penanda</button>
             </fieldset>
+            </div>
             <label>Catatan review<textarea aria-label="Catatan review" maxLength={2000} value={state.draft.reviewNote ?? ""} readOnly={disabled}
               onChange={(e) => reviewChange("reviewNote", e.target.value)} onBlur={() => { void saveReview(["reviewNote"]); }} aria-describedby="review-note-count" /></label>
             <small id="review-note-count">{(state.draft.reviewNote || "").length}/2.000 karakter · Disimpan saat keluar dari kolom.</small>
@@ -199,11 +202,12 @@ export function CustomRowPanel(props) {
           </section>
           <div className="between"><h3>Seluruh field</h3><button type="button" className="secondary small" disabled={checking || saving > 0 || cellSaving} onClick={() => void readRow()}>Periksa pembaruan</button></div>
           {masterError && <p className="muted">{masterError}</p>}
+          <div className="custom-panel-fields">
           {props.columns.map((column) => {
             const value = lookup.get(column.id) ?? "", draft = Object.hasOwn(state.cellDrafts, column.id) ? state.cellDrafts[column.id] : value;
             const masterValues = master ? { ...master.values, nomor_referensi: master.reference } : null;
             const original = masterValues?.[column.code];
-            return <div key={column.id} className="custom-panel-field"><span className="custom-panel-label">{column.label}{column.hidden && <small> · Kolom tersembunyi</small>}</span>
+            return <div key={column.id} className="custom-panel-field"><span className="custom-panel-label" title={column.label}>{column.label}{column.hidden && <small> · Kolom tersembunyi</small>}</span>
               <Input column={column} initial={value} draft={draft} disabled={disabled || !!state.cellsSaving?.[column.id]}
                 onDraft={(v) => change((s) => { const cellDrafts = { ...s.cellDrafts };
                   if (sameCell(v, value, column.type)) delete cellDrafts[column.id]; else cellDrafts[column.id] = v;
@@ -213,6 +217,7 @@ export function CustomRowPanel(props) {
               {state.cellErrors?.[column.id] && <div role="alert" className="review-save-error">{state.cellErrors[column.id]} <button type="button" className="secondary small" disabled={disabled} onClick={() => void saveCell(column, column.type === "number" && draft !== "" ? Number(draft) : draft)}>Coba lagi: {column.label}</button></div>}
             </div>;
           })}
+          </div>
         </div>
         <footer className="custom-panel-footer"><button type="button" className="secondary" disabled={props.position <= 0} onClick={() => navigate(-1)}>← Sebelumnya</button>
           <span>{props.position + 1} dari {props.count}</span><button type="button" className="secondary" disabled={props.position >= props.count - 1} onClick={() => navigate(1)}>Berikutnya →</button>
