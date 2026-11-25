@@ -3,8 +3,18 @@ import { api, download, modeClient } from "./api";
 import { Busy, Modal, Notice, Color, Pager } from "./ui";
 import { CustomBackups } from "./custom-backups";
 import { indexCells } from "../../shared/table-data";
-export function CustomTable({ onError }) {
-  const { api, download } = modeClient();
+import { CustomRowPanel } from "./custom-panel";
+import { dirtyReview } from "../../shared/custom-panel-state";
+export function CustomTable({ onError, admin, mode, config }) {
+  const { api, download } = useMemo(() => modeClient(mode), [mode]);
+  const [panelId, setPanelId] = useState(null), [draftCount, setDraftCount] = useState(0);
+  const panelRows = useRef([]), rowElements = useRef(new Map()), tableFallback = useRef(null),
+    refreshAfterPanel = useRef(false), historySerial = useRef(0), draftCache = useRef(null);
+  const draftKey = `roi:custom-panel:v1:${admin?.id || "admin"}:${mode}`;
+  if (!draftCache.current) {
+    try { draftCache.current = new Map(JSON.parse(sessionStorage.getItem(draftKey) || "[]")); }
+    catch { draftCache.current = new Map(); }
+  }
   const [data, setData] = useState(null),
     [selected, setSelected] = useState(null),
     [colForm, setColForm] = useState(null),
@@ -29,12 +39,46 @@ export function CustomTable({ onError }) {
   const query = new URLSearchParams({ page: String(page), size: "50", q: search, year, sort, dir }).toString();
   queryRef.current = query;
   const lookup = useMemo(() => indexCells(data?.cells || []), [data?.cells]);
+  function persistPanel(state) {
+    draftCache.current.set(state.row.id, state);
+    const drafts = [...draftCache.current].filter(([, entry]) => dirtyReview(entry).length || Object.keys(entry.cellDrafts || {}).length);
+    try { sessionStorage.setItem(draftKey, JSON.stringify(drafts)); } catch { /* Keep drafts in memory when browser storage is unavailable. */ }
+    if (mounted.current) setDraftCount(drafts.length);
+  }
+  function panelActivity(delta) {
+    mutationEpoch.current++; pendingWrites.current += delta;
+    if (mounted.current) setSaving((n) => n + delta);
+    if (delta < 0 && !pendingWrites.current && refreshAfterPanel.current && mounted.current) {
+      refreshAfterPanel.current = false; void load(true);
+    }
+  }
+  async function panelSaved(row) {
+    if (!mounted.current) return;
+    setData((d) => ({ ...d, rows: d.rows.map((r) => r.id === row.id ? row : r) }));
+    const serial = ++historySerial.current;
+    try {
+      const history = await api("/admin/custom/history");
+      if (mounted.current && serial === historySerial.current) setData((d) => ({ ...d, history }));
+    } catch { /* A history refresh must not turn a successful save into a failed write. */ }
+  }
+  function openPanel(row) {
+    if (busy || pendingWrites.current) return;
+    requestSerial.current++; setLoading(false);
+    panelRows.current = [...data.rows]; setPanelId(row.id);
+  }
+  function closePanel() {
+    const element = rowElements.current.get(panelId) || tableFallback.current;
+    setPanelId(null); refreshAfterPanel.current = true;
+    requestAnimationFrame(() => element?.isConnected ? element.focus({ preventScroll: true }) : tableFallback.current?.focus());
+    if (!pendingWrites.current) { refreshAfterPanel.current = false; void load(true); }
+  }
   useEffect(() => {
     const timer = setTimeout(() => { setSearch(q); setPage(1); }, 300);
     return () => clearTimeout(timer);
   }, [q]);
   useEffect(() => {
     mounted.current = true;
+    setDraftCount([...draftCache.current.values()].filter((entry) => dirtyReview(entry).length || Object.keys(entry.cellDrafts || {}).length).length);
     return () => { mounted.current = false; requestSerial.current++; };
   }, []);
   async function load(silent = false) {
@@ -58,13 +102,13 @@ export function CustomTable({ onError }) {
   useEffect(() => {
     let fetching = false;
     const timer = setInterval(async () => {
-      if (fetching || busy || syncDialog || backupsOpen || selected || colForm || editCol || document.hidden || pendingWrites.current ||
+      if (fetching || panelId || busy || syncDialog || backupsOpen || selected || colForm || editCol || document.hidden || pendingWrites.current ||
         document.activeElement?.matches("input,textarea,select,[contenteditable=true]")) return;
       fetching = true;
       try { await load(true); } finally { fetching = false; }
     }, 15000);
     return () => clearInterval(timer);
-  }, [busy, syncDialog, backupsOpen, selected, colForm, editCol, query]);
+  }, [panelId, busy, syncDialog, backupsOpen, selected, colForm, editCol, query]);
   async function act(fn) {
     mutationEpoch.current++;
     pendingWrites.current++;
@@ -145,9 +189,9 @@ export function CustomTable({ onError }) {
     mutationEpoch.current++;
     pendingWrites.current++;
     setSaving((n) => n + 1);
-    let moved = false;
+    let moved = false, result;
     try {
-      const result = await api("/admin/custom/cell", {
+      result = await api("/admin/custom/cell", {
         method: "PUT",
         body: { rowId: row.id, columnId: col.id, ...patch },
       });
@@ -167,6 +211,7 @@ export function CustomTable({ onError }) {
       pendingWrites.current--;
     }
     if (moved) await load();
+    return result;
   }
   function applyView(v) {
     setQ(v.config.q || "");
@@ -194,6 +239,7 @@ export function CustomTable({ onError }) {
         Data Form. Warna XLSX dipertahankan; format CSV tidak mendukung warna.
       </Notice>
       <Notice type="success">{message}</Notice>
+      {!!draftCount && <Notice>Ada draf pada {draftCount} baris. Buka kembali detail baris untuk melanjutkan penyimpanan.</Notice>}
       <div className="toolbar wrap">
         <button
           className="secondary"
@@ -369,7 +415,7 @@ export function CustomTable({ onError }) {
         </select>
       </div>
       {loading && <Busy>Memuat halaman…</Busy>}
-      <section className="paper table-paper" aria-busy={loading}>
+      <section className="paper table-paper" aria-busy={loading} tabIndex={-1} ref={tableFallback}>
         <div className="table-scroll custom-scroll">
           <table className="custom-table">
             <thead>
@@ -426,7 +472,12 @@ export function CustomTable({ onError }) {
               {rows.map((r, i) => (
                 <React.Fragment key={r.id}>
                 {year === "all" && (i === 0 || rows[i - 1].bookYear !== r.bookYear) && <tr className="book-year-heading"><th colSpan={cols.length + 1}>Pembukuan {r.bookYear}</th></tr>}
-                <tr data-book-year={r.bookYear} data-book-number={r.bookNumber}>
+                <tr data-book-year={r.bookYear} data-book-number={r.bookNumber} tabIndex={0}
+                  ref={(element) => element ? rowElements.current.set(r.id, element) : rowElements.current.delete(r.id)}
+                  className={panelId === r.id ? "custom-row-active" : undefined} aria-selected={panelId === r.id}
+                  aria-haspopup="dialog" aria-label={`Buka detail No. Buku ${r.bookNumber} tahun ${r.bookYear}`}
+                  onClick={(e) => { if (!e.target.closest("input,textarea,select,button,a,[contenteditable=true]")) openPanel(r); }}
+                  onKeyDown={(e) => { if (e.target === e.currentTarget && ["Enter", " "].includes(e.key)) { e.preventDefault(); openPanel(r); } }}>
                   <td>
                     <div className="inline">
                       <span className="muted">{r.bookNumber ?? "—"}</span>
@@ -505,6 +556,18 @@ export function CustomTable({ onError }) {
           onChange={setPage}
         />
       </section>
+      {panelId && <CustomRowPanel key={panelId}
+        theme={{ "--primary": config?.["tema_" + mode], "--accent": config?.["aksen_" + mode] }}
+        row={data.rows.find((r) => r.id === panelId) || panelRows.current.find((r) => r.id === panelId)}
+        cells={data.cells.filter((c) => c.rowId === panelId)} columns={data.columns}
+        cached={draftCache.current.get(panelId)} api={api} persist={persistPanel} activity={panelActivity}
+        readCached={() => draftCache.current.get(panelId)}
+        saved={panelSaved} updateCell={updateCell} CellInput={CellInput} busy={busy}
+        history={data.history} travel={navigateHistory} writes={saving}
+        canReadMaster={!!admin?.menus?.includes("data")} close={closePanel}
+        position={panelRows.current.findIndex((r) => r.id === panelId)} count={panelRows.current.length}
+        navigate={(offset) => { const index = panelRows.current.findIndex((r) => r.id === panelId) + offset;
+          if (index >= 0 && index < panelRows.current.length) setPanelId(panelRows.current[index].id); }} />}
       <details
         className="paper custom-advanced"
         style={{ marginTop: 24, padding: 20 }}
@@ -754,13 +817,16 @@ export function CustomTable({ onError }) {
     </>
   );
 }
-function CellInput({ column: c, initial, onSave }) {
-  const [v, setV] = useState(initial);
+function CellInput({ column: c, initial, onSave, draft, onDraft, disabled = false }) {
+  const [local, setLocal] = useState(initial);
+  const v = onDraft ? draft : local;
+  const setV = onDraft || setLocal;
   if (c.type === "checkbox")
     return (
       <input
         aria-label={c.label}
         type="checkbox"
+        disabled={disabled}
         checked={v === true || v === "true"}
         onChange={(e) => {
           setV(e.target.checked);
@@ -772,6 +838,7 @@ function CellInput({ column: c, initial, onSave }) {
     return (
       <select
         aria-label={c.label}
+        disabled={disabled}
         value={v}
         onChange={(e) => {
           setV(e.target.value);
@@ -790,6 +857,7 @@ function CellInput({ column: c, initial, onSave }) {
   return (
     <input
       aria-label={c.label}
+      disabled={disabled}
       type={["number", "date"].includes(c.type) ? c.type : "text"}
       step="any"
       value={v}

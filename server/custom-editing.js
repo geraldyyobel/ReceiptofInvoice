@@ -14,6 +14,15 @@ const color = z
   .regex(/^#[a-fA-F\d]{6}$/)
   .nullable();
 export function registerCustomEditingRoutes(app) {
+  app.get("/api/admin/custom/rows/:id", async (req, res) => {
+    const result = await db.$transaction(async (tx) => {
+      const row = await tx.customRow.findFirst({ where: { id: req.params.id, mode: req.mode } });
+      if (!row) throw fail("Baris tabel kustom tidak lagi tersedia dalam mode ini", 404);
+      const cells = await tx.customCell.findMany({ where: { rowId: row.id, mode: req.mode } });
+      return { row, cells };
+    }, { isolationLevel: (process.env.DATABASE_PROVIDER || "sqlite") === "sqlite" ? "Serializable" : "RepeatableRead" });
+    res.json(result);
+  });
   app.get("/api/admin/custom/history", async (req, res) =>
     res.json(await customHistoryStatus(db, req)),
   );

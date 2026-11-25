@@ -17,6 +17,8 @@ const testFiles = [
   "tests/custom-review.test.js",
   "tests/custom-review-performance.test.js",
   "tests/custom-search-equivalence.test.js",
+  "tests/custom-panel-state.test.js",
+  "tests/custom-panel-browser.test.js",
   "tests/review-regressions.test.js",
   "tests/notifications.test.js",
   "tests/dashboard.test.js",
