@@ -31,7 +31,7 @@ before(() =>
 );
 const vendor = request.agent(server),
   admin = request.agent(server);
-let vc, ac, sub, form;
+let vc, ac, sub, form, internalReceipt;
 const valid = {
   paham_ketentuan: "Ya",
   email_anda: "vendor@example.com",
@@ -131,6 +131,16 @@ test("API, keamanan, CRUD, email mock, PDF dan restore end-to-end", async (t) =>
     }, vc).expect(200, { found: true, receipt: null });
     await post(vendor, url, {
       criteria: { ...book, mode: "internal" }, proofs,
+    }, vc).expect(422);
+    const { mode, ...withoutMode } = book;
+    await post(vendor, url, { criteria: withoutMode, proofs }, vc).expect(200, { found: true, receipt: expected });
+    internalReceipt = await db.submission.create({ data: {
+      ...await db.submission.findUniqueOrThrow({ where: { id: sub.id } }),
+      id: undefined, reference: "ROI-INT-PRIVATE-LOOKUP", mode: "internal", bookYear: 2194, bookNumber: 1,
+    } });
+    await post(vendor, url, {
+      criteria: { by: "reference", reference: internalReceipt.reference },
+      proofs: [{ id: internalReceipt.id, token: sub.token }],
     }, vc).expect(200, { found: false, receipt: null });
     await post(vendor, url, {
       criteria: { ...book, bookYear: sub.bookYear - 1 }, proofs,
@@ -162,9 +172,14 @@ test("API, keamanan, CRUD, email mock, PDF dan restore end-to-end", async (t) =>
       assert.equal(messages[0].to, valid.email_anda);
       assert.equal(messages[0].attachments[0].filename, sub.reference + ".pdf");
       assert.equal(messages[0].attachments[0].content.subarray(0, 4).toString(), "%PDF");
+      await post(vendor, url, {
+        criteria: { by: "reference", reference: internalReceipt.reference }, email: valid.email_anda,
+      }, vc).expect(202, { ok: true });
+      assert.equal(messages.length, 1);
     } finally {
       if (oldHost === undefined) delete process.env.SMTP_HOST;
       else process.env.SMTP_HOST = oldHost;
+      await db.submission.delete({ where: { id: internalReceipt.id } });
     }
   });
   await t.test(

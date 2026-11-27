@@ -32,7 +32,7 @@ Super Admin membuat role kustom dengan `POST /admin/settings/menu-access/roles` 
 
 Download/email publik memerlukan `X-Document-Token` dari respons submit. Token tidak diletakkan pada URL. Upload vendor privat hanya dilayani melalui endpoint admin; gunakan `value` yang dikembalikan sebagai nilai field file.
 
-Pencarian memakai `criteria` berupa `{by:"reference", reference}` atau `{by:"book", mode, bookYear, bookNumber}`. Kedua rute pencarian memerlukan CSRF. Permintaan email dengan nomor atau email yang tidak cocok menerima respons yang sama.
+Pencarian publik dan pemulihan melalui email hanya mencakup mode Eksternal, termasuk saat memakai nomor referensi. `criteria` berupa `{by:"reference", reference}` atau `{by:"book", bookYear, bookNumber}`. Mode pencarian buku otomatis `eksternal`; jika dikirim eksplisit, hanya `mode:"eksternal"` yang diterima. Kedua rute pencarian memerlukan CSRF. Permintaan email dengan nomor atau email yang tidak cocok menerima respons yang sama.
 
 Payload submit:
 

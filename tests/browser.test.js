@@ -106,7 +106,7 @@ test("browser desktop/mobile: form vendor, admin, TinyMCE dan navigasi", async (
     assert.equal(await page.getByRole("heading", { name: "Dokumen ditemukan" }).count(), 0);
     await page.getByLabel("Nomor buku", { exact: true }).fill(String(receipt.bookNumber));
     await page.getByLabel("Tahun buku").fill(String(receipt.bookYear));
-    await page.getByLabel("Mode", { exact: true }).selectOption("eksternal");
+    assert.equal(await page.getByLabel("Mode", { exact: true }).count(), 0);
     await page.getByRole("button", { name: "Cari dokumen" }).click();
     await page.getByRole("heading", { name: "Dokumen ditemukan" }).waitFor();
     const htmlEvent = page.waitForEvent("download");
@@ -427,9 +427,9 @@ test("browser desktop/mobile: form vendor, admin, TinyMCE dan navigasi", async (
     assert.equal(await direct.locator(".notice.error").count(), 0);
     await direct.getByLabel("Nomor buku", { exact: true }).fill("2147483647");
     await direct.getByLabel("Tahun buku", { exact: true }).fill("2026");
-    await direct.getByLabel("Mode", { exact: true }).selectOption("eksternal");
+    assert.equal(await direct.getByLabel("Mode", { exact: true }).count(), 0);
     await direct.getByRole("button", { name: "Cari dokumen" }).click();
-    await direct.getByRole("alert").getByText("Dokumen tidak ditemukan. Periksa kembali nomor buku, tahun buku, dan mode yang dipilih.", { exact: true }).waitFor();
+    await direct.getByRole("alert").getByText("Dokumen tidak ditemukan. Periksa kembali nomor buku dan tahun buku Anda.", { exact: true }).waitFor();
     await direct.getByLabel("Nomor buku", { exact: true }).fill(String(receipt.bookNumber));
     await direct.getByLabel("Tahun buku", { exact: true }).fill(String(receipt.bookYear));
     await direct.getByRole("button", { name: "Cari dokumen" }).click();

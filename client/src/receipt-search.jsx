@@ -20,7 +20,6 @@ function savedProofs() {
 export function ReceiptSearch() {
   const [by, setBy] = useState("reference");
   const [reference, setReference] = useState("");
-  const [mode, setMode] = useState("");
   const [bookYear, setBookYear] = useState("");
   const [bookNumber, setBookNumber] = useState("");
   const [email, setEmail] = useState("");
@@ -57,7 +56,7 @@ export function ReceiptSearch() {
     event.preventDefault();
     const criteria = by === "reference"
       ? { by, reference: reference.trim() }
-      : { by, mode, bookYear: Number(bookYear), bookNumber: Number(bookNumber) };
+      : { by, mode: "eksternal", bookYear: Number(bookYear), bookNumber: Number(bookNumber) };
     if (by === "reference" && !criteria.reference) {
       setError("Masukkan nomor referensi.");
       return;
@@ -74,7 +73,7 @@ export function ReceiptSearch() {
       if (!found) {
         setError(by === "reference"
           ? "Dokumen tidak ditemukan. Periksa kembali nomor referensi Anda."
-          : "Dokumen tidak ditemukan. Periksa kembali nomor buku, tahun buku, dan mode yang dipilih.");
+          : "Dokumen tidak ditemukan. Periksa kembali nomor buku dan tahun buku Anda.");
         return;
       }
       const proof = proofs.find((entry) => entry.id === receipt?.id);
@@ -107,7 +106,7 @@ export function ReceiptSearch() {
     <>
       <div className="receipt-search-heading">
         <h1>Cari Receipt of Invoice</h1>
-        <p>Temukan bukti penerimaan invoice dengan nomor referensi atau nomor buku.</p>
+        <p>Temukan bukti penerimaan invoice Eksternal dengan nomor referensi atau nomor buku.</p>
       </div>
       <section className="paper receipt-search" aria-label="Pencarian Receipt of Invoice">
         <form onSubmit={search}>
@@ -136,14 +135,6 @@ export function ReceiptSearch() {
                   Tahun buku
                   <input required inputMode="numeric" pattern="[0-9]{4}" maxLength={4}
                     placeholder="Contoh 2026" value={bookYear} onChange={change(setBookYear)} />
-                </label>
-                <label>
-                  <span id="receipt-search-mode-label">Mode</span>
-                  <select required aria-labelledby="receipt-search-mode-label" value={mode} onChange={change(setMode)}>
-                    <option value="">Pilih mode</option>
-                    <option value="internal">Internal</option>
-                    <option value="eksternal">Eksternal</option>
-                  </select>
                 </label>
               </div>
             )}

@@ -10,7 +10,7 @@ const criteria = z.discriminatedUnion("by", [
   }),
   z.object({
     by: z.literal("book"),
-    mode: z.enum(["internal", "eksternal"]),
+    mode: z.literal("eksternal").default("eksternal"),
     bookYear: z.number().int().min(1).max(9999),
     bookNumber: z.number().int().min(1).max(2147483647),
   }),
@@ -36,7 +36,7 @@ const metadata = {
 const normalizeEmail = (email) => email.trim().toLowerCase();
 
 function receiptKey(query) {
-  if (query.by === "reference") return { reference: query.reference };
+  if (query.by === "reference") return { reference: query.reference, mode: "eksternal" };
   const { mode, bookYear, bookNumber } = query;
   return { mode_bookYear_bookNumber: { mode, bookYear, bookNumber } };
 }
